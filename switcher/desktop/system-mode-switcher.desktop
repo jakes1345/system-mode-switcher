@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=System Mode Switcher
+Comment=Switch between Gaming, Programming, AI, and custom system profiles
+Exec=python3 /opt/system-mode-switcher/switcher/__main__.py
+Icon=system-mode-switcher
+Terminal=false
+Type=Application
+Categories=System;Settings;
+Keywords=gaming;performance;services;profile;mode;
+StartupNotify=true
