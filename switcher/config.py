@@ -54,6 +54,9 @@ class Config:
 # ── Built-in defaults ────────────────────────────────────────────────────
 
 DEFAULT_SERVICES = [
+    ServiceConfig("fail2ban.service", "Fail2Ban", "Intrusion prevention"),
+    ServiceConfig("snort.service", "Snort", "Network IDS/IPS"),
+    ServiceConfig("openvpn.service", "OpenVPN", "VPN tunnel"),
     ServiceConfig("mysql.service", "MySQL", "Database server"),
     ServiceConfig("postgresql@16-main.service", "PostgreSQL", "Database server"),
     ServiceConfig("docker.service", "Docker", "Container engine"),
@@ -83,6 +86,7 @@ _ALL_OFF = {s.name: False for s in DEFAULT_SERVICES}
 _KEEP_ON = {"tailscaled.service": True, "bluetooth.service": True, "lactd.service": True}
 
 _SVC_PROGRAMMING = {
+    "fail2ban.service": False, "snort.service": False, "openvpn.service": False,
     "mysql.service": True, "postgresql@16-main.service": True,
     "docker.service": True, "containerd.service": True,
     "godot-server.service": False, "php8.3-fpm.service": True,
@@ -116,6 +120,24 @@ DEFAULT_PROFILES: dict[str, ProfileConfig] = {
         color="#9b59b6", builtin=True,
         services={**_SVC_PROGRAMMING, "ollama.service": True},
         processes={"qdrant": True},
+        tweaks=TweakConfig(swappiness=30),
+    ),
+    "Red Team": ProfileConfig(
+        name="Red Team",
+        description="Offensive security lab. Tor + Docker + IDS.",
+        color="#ff1744", builtin=True,
+        services={
+            "fail2ban.service": True, "snort.service": True, "openvpn.service": False,
+            "mysql.service": True, "postgresql@16-main.service": True,
+            "docker.service": True, "containerd.service": True,
+            "godot-server.service": False, "php8.3-fpm.service": False,
+            "postfix@-.service": False, "smbd.service": False, "nmbd.service": False,
+            "tor@default.service": True, "shadow-cypher.service": False,
+            "cups.service": False, "cups-browsed.service": False,
+            "tailscaled.service": True, "bluetooth.service": False,
+            "ModemManager.service": False, "lactd.service": True, "ollama.service": False,
+        },
+        processes={"qdrant": False},
         tweaks=TweakConfig(swappiness=30),
     ),
     "Game Dev": ProfileConfig(
