@@ -33,6 +33,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
 
         self._config = config
         self._active_profile: str | None = None
+        self._sudo_password: str | None = None
 
         self._build_headerbar()
         self._build_layout()
@@ -249,8 +250,14 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             self._log("No changes to apply.")
             return
 
-        if not confirm_apply_dialog(self, [c[1] for c in changes]):
+        if not confirm_apply_dialog(self, [c["text"] for c in changes]):
             return
+
+        # Ask for sudo password if we don't have one yet (fallback for pkexec)
+        if self._sudo_password is None:
+            self._sudo_password = self._ask_sudo_password()
+            if not self._sudo_password:
+                self._log("No password provided — will try pkexec only.")
 
         self._apply_btn.set_sensitive(False)
         self._apply_btn.set_label("Applying...")
@@ -262,18 +269,24 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         )
         thread.start()
 
-    def _build_change_list(self, desired: dict) -> list[tuple[str, str]]:
-        """Build list of (type, description) for changes."""
+    def _build_change_list(self, desired: dict) -> list[dict]:
+        """Build list of change dicts with type, key, display text, and metadata."""
         changes = []
 
         for svc_name, want in desired["services"].items():
             current = backend.is_service_active(svc_name)
             if want and not current:
                 display = self.panel.service_rows[svc_name].name_label.get_text()
-                changes.append(("start_svc", f"START  {display} ({svc_name})"))
+                changes.append({
+                    "type": "start_svc", "key": svc_name,
+                    "text": f"START  {display} ({svc_name})",
+                })
             elif not want and current:
                 display = self.panel.service_rows[svc_name].name_label.get_text()
-                changes.append(("stop_svc", f"STOP   {display} ({svc_name})"))
+                changes.append({
+                    "type": "stop_svc", "key": svc_name,
+                    "text": f"STOP   {display} ({svc_name})",
+                })
 
         for proc_id, want in desired["processes"].items():
             proc = next((p for p in self._config.processes if p.id == proc_id), None)
@@ -281,77 +294,101 @@ class SwitcherWindow(Gtk.ApplicationWindow):
                 continue
             current = backend.is_process_running(proc.grep)
             if want and not current:
-                changes.append(("start_proc", f"START  {proc.display}"))
+                changes.append({
+                    "type": "start_proc", "key": proc_id,
+                    "text": f"START  {proc.display}",
+                    "start_cmd": proc.start_cmd,
+                })
             elif not want and current:
-                changes.append(("stop_proc", f"KILL   {proc.display}"))
+                changes.append({
+                    "type": "stop_proc", "key": proc_id,
+                    "text": f"KILL   {proc.display}",
+                    "grep": proc.grep,
+                })
 
         current_swap = backend.get_swappiness()
         if desired["swappiness"] != current_swap:
-            changes.append(("swap", f"SET    swappiness {current_swap} -> {desired['swappiness']}"))
+            changes.append({
+                "type": "swap", "key": "swappiness",
+                "text": f"SET    swappiness {current_swap} -> {desired['swappiness']}",
+            })
 
         if desired["unredirect"] != backend.get_compositor_unredirect():
-            changes.append(("comp", f"SET    compositor unredirect -> {desired['unredirect']}"))
+            changes.append({
+                "type": "comp", "key": "compositor",
+                "text": f"SET    compositor unredirect -> {desired['unredirect']}",
+            })
 
         gpu = backend.get_gpu_performance_mode()
         if gpu is not None and gpu != desired["gpu_perf"]:
             label = "max" if desired["gpu_perf"] else "adaptive"
-            changes.append(("gpu", f"SET    GPU performance -> {label}"))
+            changes.append({
+                "type": "gpu", "key": "gpu",
+                "text": f"SET    GPU performance -> {label}",
+            })
 
         return changes
 
-    def _apply_worker(self, desired: dict, changes: list[tuple[str, str]]) -> None:
+    def _ask_sudo_password(self) -> str | None:
+        """Ask for sudo password via GTK dialog."""
+        dialog = Gtk.Dialog(
+            title="Authentication Required",
+            parent=self,
+            flags=Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
+        )
+        dialog.add_buttons("_Cancel", Gtk.ResponseType.CANCEL, "_OK", Gtk.ResponseType.OK)
+
+        box = dialog.get_content_area()
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        box.set_spacing(8)
+
+        box.pack_start(
+            Gtk.Label(label="Enter your sudo password to manage services:"),
+            False, False, 0,
+        )
+
+        entry = Gtk.Entry()
+        entry.set_visibility(False)
+        entry.set_invisible_char("*")
+        entry.connect("activate", lambda _e: dialog.response(Gtk.ResponseType.OK))
+        box.pack_start(entry, False, False, 0)
+
+        dialog.show_all()
+        response = dialog.run()
+        pw = entry.get_text() if response == Gtk.ResponseType.OK else None
+        dialog.destroy()
+        return pw or None
+
+    def _apply_worker(self, desired: dict, changes: list[dict]) -> None:
         """Background thread — applies changes via pkexec batch script."""
         total = len(changes)
 
-        # Separate privileged vs user-level changes
-        services_start = []
-        services_stop = []
-        procs_start = []
-        procs_kill = []
-        new_swap = None
-
-        for change_type, desc in changes:
-            if change_type == "start_svc":
-                svc = desc.split("(")[-1].rstrip(")")
-                services_start.append(svc)
-            elif change_type == "stop_svc":
-                svc = desc.split("(")[-1].rstrip(")")
-                services_stop.append(svc)
-            elif change_type == "start_proc":
-                proc_name = desc.replace("START  ", "")
-                proc = next(
-                    (p for p in self._config.processes
-                     if p.display == proc_name), None
-                )
-                if proc and proc.start_cmd:
-                    procs_start.append((proc.id, proc.start_cmd))
-            elif change_type == "stop_proc":
-                proc_name = desc.replace("KILL   ", "")
-                proc = next(
-                    (p for p in self._config.processes
-                     if p.display == proc_name), None
-                )
-                if proc:
-                    procs_kill.append((proc.id, proc.grep))
-            elif change_type == "swap":
-                new_swap = desired["swappiness"]
+        # Separate changes by type using structured data (no string parsing)
+        services_start = [c["key"] for c in changes if c["type"] == "start_svc"]
+        services_stop = [c["key"] for c in changes if c["type"] == "stop_svc"]
+        procs_start = [(c["key"], c["start_cmd"]) for c in changes if c["type"] == "start_proc"]
+        procs_kill = [(c["key"], c["grep"]) for c in changes if c["type"] == "stop_proc"]
+        new_swap = desired["swappiness"] if any(c["type"] == "swap" for c in changes) else None
+        gpu_change = any(c["type"] == "gpu" for c in changes)
 
         # Build and run privileged script
-        needs_pkexec = services_start or services_stop or procs_kill or procs_start or new_swap is not None
-        gpu_change = any(t == "gpu" for t, _ in changes)
+        needs_privileged = services_start or services_stop or procs_kill or procs_start or new_swap is not None
 
-        if needs_pkexec:
+        if needs_privileged:
             script = backend.build_apply_script(
                 services_to_start=services_start,
                 services_to_stop=services_stop,
                 processes_to_start=procs_start,
                 processes_to_kill=procs_kill,
                 swappiness=new_swap,
-                compositor_unredirect=None,  # handled separately
+                compositor_unredirect=None,  # handled separately (user-level)
                 gpu_performance=desired["gpu_perf"] if gpu_change and backend.GPU_VENDOR == "amd" else None,
             )
             GLib.idle_add(self._log, "Running privileged operations...")
-            ok, output = backend.run_apply_script(script)
+            ok, output = backend.run_apply_script(script, sudo_password=self._sudo_password)
 
             # Parse output for progress
             done = 0
@@ -364,10 +401,10 @@ class SwitcherWindow(Gtk.ApplicationWindow):
                     GLib.idle_add(self._log, f"  {line}")
 
             if not ok:
-                GLib.idle_add(self._log, f"ERROR: Some operations failed. {output}")
+                GLib.idle_add(self._log, f"ERROR: Some operations failed.")
 
         # Compositor (user-level, no pkexec)
-        if any(t == "comp" for t, _ in changes):
+        if any(c["type"] == "comp" for c in changes):
             ok, err = backend.set_compositor_unredirect(desired["unredirect"])
             val = "on" if desired["unredirect"] else "off"
             GLib.idle_add(self._log, f"  Compositor unredirect -> {val}")
@@ -388,7 +425,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         self._apply_btn.set_sensitive(True)
         self._apply_btn.set_label("Apply Changes  (Ctrl+Enter)")
         self._progress.set_fraction(1.0)
-        GLib.timeout_add(2000, self._progress.hide)
+        GLib.timeout_add(2000, lambda: (self._progress.hide(), False)[-1])
 
         self.panel.refresh_switches()
         self._detect_active_profile()

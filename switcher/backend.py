@@ -193,22 +193,48 @@ def build_apply_script(
     return "\n".join(lines)
 
 
-def run_apply_script(script_content: str) -> tuple[bool, str]:
-    """Write script to temp file, run via pkexec, return (success, output)."""
+def run_apply_script(script_content: str, sudo_password: str | None = None) -> tuple[bool, str]:
+    """Write script to temp file, run via pkexec (or sudo fallback), return (success, output)."""
     fd, path = tempfile.mkstemp(prefix="switcher-apply-", suffix=".sh")
     try:
         os.write(fd, script_content.encode())
         os.close(fd)
         os.chmod(path, 0o755)
 
-        r = subprocess.run(
-            ["pkexec", "bash", path],
-            capture_output=True, text=True, timeout=120,
-        )
-        output = r.stdout.strip()
-        if r.returncode != 0:
-            output += "\n" + r.stderr.strip()
-        return r.returncode == 0, output
+        # Try pkexec first
+        try:
+            r = subprocess.run(
+                ["pkexec", "bash", path],
+                capture_output=True, text=True, timeout=120,
+            )
+            output = r.stdout.strip()
+            if r.returncode != 0:
+                output += "\n" + r.stderr.strip()
+            # If pkexec succeeded or user cancelled (126), return
+            if r.returncode == 0 or r.returncode == 126:
+                return r.returncode == 0, output
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+        # Fallback to sudo -S if pkexec failed and we have a password
+        if sudo_password:
+            r = subprocess.run(
+                ["sudo", "-S", "bash", path],
+                input=sudo_password + "\n",
+                capture_output=True, text=True, timeout=120,
+            )
+            output = r.stdout.strip()
+            if r.returncode != 0:
+                # Filter out the password prompt from stderr
+                stderr_lines = [
+                    l for l in r.stderr.strip().splitlines()
+                    if not l.startswith("[sudo]")
+                ]
+                if stderr_lines:
+                    output += "\n" + "\n".join(stderr_lines)
+            return r.returncode == 0, output
+
+        return False, "pkexec failed and no sudo password available"
     except subprocess.TimeoutExpired:
         return False, "Apply timed out after 120s"
     except OSError as e:
