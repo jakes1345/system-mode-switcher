@@ -1,267 +1,326 @@
-"""Application CSS — dark theme for System Mode Switcher."""
+"""Application CSS — System Mode Switcher dark theme.
+
+Design: Industrial control panel. Warm darks, no blue spam.
+Each profile's color is the visual identity — the chrome stays neutral.
+"""
 
 CSS = """
-/* ── Base ──────────────────────────────────────────────────────── */
+/* ── Base — warm dark, not cold blue ──────────────────────────── */
 
 window, .main-container {
-    background-color: #0f0f1a;
+    background-color: #0d0d0f;
 }
 
 headerbar {
-    background: linear-gradient(to right, #1a1a2e, #16213e);
-    border-bottom: 1px solid #2a2a4a;
+    background: #161618;
+    border-bottom: 1px solid #2a2a2c;
     padding: 4px 8px;
 }
 
 headerbar .title {
-    color: #e0e0e0;
+    color: #e8e4df;
     font-weight: bold;
     font-size: 15px;
+    letter-spacing: 0.5px;
 }
 
 headerbar .subtitle {
-    color: #666;
+    color: #6b6660;
     font-size: 11px;
 }
 
 .system-stat {
-    color: #888;
-    font-size: 12px;
+    color: #6b6660;
+    font-size: 11px;
     font-family: monospace;
 }
 
 .system-stat-value {
-    color: #4fc3f7;
-    font-size: 12px;
+    color: #d4a845;
+    font-size: 11px;
     font-weight: bold;
     font-family: monospace;
 }
 
-/* ── Sidebar ──────────────────────────────────────────────────── */
+/* ── Sidebar — dark panel ─────────────────────────────────────── */
 
 .sidebar {
-    background-color: #111122;
-    border-right: 1px solid #2a2a4a;
+    background-color: #111113;
+    border-right: 1px solid #222224;
 }
 
 .sidebar-title {
-    color: #666;
-    font-size: 11px;
+    color: #5a5550;
+    font-size: 10px;
     font-weight: bold;
-    letter-spacing: 2px;
+    letter-spacing: 3px;
 }
 
 .profile-card {
-    background: #1a1a2e;
-    border: 2px solid #2a2a4a;
-    border-radius: 10px;
-    padding: 12px 14px;
-    transition: all 200ms ease;
+    background: #1a1a1c;
+    border: none;
+    border-left: 3px solid #333;
+    border-radius: 0px 8px 8px 0px;
+    padding: 10px 14px;
+    margin: 1px 0;
 }
 
 .profile-card:hover {
-    background: #1e1e3a;
-    border-color: #444;
+    background: #222224;
 }
 
 .profile-card.active {
-    background: #1a1a3e;
-    border-width: 2px;
+    background: #1e1e20;
 }
 
 .profile-card-name {
-    color: #e0e0e0;
-    font-size: 14px;
+    color: #e0dcd6;
+    font-size: 13px;
     font-weight: bold;
+    letter-spacing: 0.3px;
 }
 
 .profile-card-desc {
-    color: #777;
-    font-size: 11px;
+    color: #5a5550;
+    font-size: 10px;
+    margin-top: 2px;
 }
 
 .save-profile-btn {
     background: transparent;
-    border: 2px dashed #333;
-    border-radius: 10px;
-    padding: 10px 14px;
-    color: #555;
-    font-size: 13px;
+    border: 1px dashed #333;
+    border-radius: 6px;
+    padding: 8px 14px;
+    color: #4a4540;
+    font-size: 12px;
 }
 
 .save-profile-btn:hover {
-    border-color: #4fc3f7;
-    color: #4fc3f7;
+    border-color: #d4a845;
+    color: #d4a845;
 }
 
 /* ── Service Panel ────────────────────────────────────────────── */
 
 .panel-bg {
-    background-color: #0f0f1a;
+    background-color: #0d0d0f;
 }
 
 .search-entry {
-    background: #1a1a2e;
-    color: #e0e0e0;
-    border: 1px solid #2a2a4a;
-    border-radius: 8px;
+    background: #161618;
+    color: #c8c4be;
+    border: 1px solid #2a2a2c;
+    border-radius: 6px;
     padding: 6px 10px;
-    font-size: 13px;
+    font-size: 12px;
+    caret-color: #d4a845;
 }
 
 .search-entry:focus {
-    border-color: #4fc3f7;
+    border-color: #d4a845;
 }
 
 .section-label {
-    color: #4fc3f7;
-    font-size: 13px;
+    color: #6b6660;
+    font-size: 10px;
     font-weight: bold;
-    letter-spacing: 1px;
+    letter-spacing: 2px;
 }
 
 .service-row {
-    background: #161628;
-    border-radius: 8px;
-    padding: 8px 12px;
-    margin: 2px 0;
+    background: #141416;
+    border-left: 2px solid #252527;
+    border-radius: 0px 6px 6px 0px;
+    padding: 7px 12px;
+    margin: 1px 0;
 }
 
 .service-row:hover {
-    background: #1c1c38;
+    background: #1a1a1c;
 }
 
 .service-name {
-    color: #e0e0e0;
-    font-size: 13px;
+    color: #d0ccc6;
+    font-size: 12px;
     font-weight: 600;
 }
 
 .service-desc {
-    color: #555;
-    font-size: 11px;
-}
-
-.status-dot {
+    color: #4a4540;
     font-size: 10px;
 }
 
+.status-dot {
+    font-size: 9px;
+}
+
 .status-dot.on {
-    color: #2ecc71;
+    color: #00e676;
 }
 
 .status-dot.off {
-    color: #555;
+    color: #3a3835;
 }
 
 .tweak-label {
-    color: #ccc;
-    font-size: 13px;
+    color: #a09a92;
+    font-size: 12px;
 }
 
 .tweak-row {
-    background: #161628;
-    border-radius: 8px;
-    padding: 8px 12px;
-    margin: 2px 0;
+    background: #141416;
+    border-left: 2px solid #252527;
+    border-radius: 0px 6px 6px 0px;
+    padding: 7px 12px;
+    margin: 1px 0;
 }
 
 /* ── Bottom Bar ───────────────────────────────────────────────── */
 
 .bottom-bar {
-    background: #111122;
-    border-top: 1px solid #2a2a4a;
+    background: #111113;
+    border-top: 1px solid #222224;
     padding: 8px 16px;
 }
 
 .apply-button {
-    background: #4fc3f7;
-    color: #0f0f1a;
-    border-radius: 8px;
-    padding: 8px 24px;
-    font-size: 14px;
+    background: #d4a845;
+    color: #0d0d0f;
+    border-radius: 6px;
+    padding: 8px 28px;
+    font-size: 13px;
     font-weight: bold;
     border: none;
     min-width: 200px;
+    letter-spacing: 0.5px;
 }
 
 .apply-button:hover {
-    background: #81d4fa;
+    background: #e0b94f;
 }
 
 .apply-button:disabled {
-    background: #333;
-    color: #666;
+    background: #2a2a2c;
+    color: #4a4540;
 }
 
 .refresh-button {
-    background: #1a1a2e;
-    color: #888;
-    border-radius: 8px;
-    padding: 8px 14px;
+    background: transparent;
+    color: #5a5550;
+    border-radius: 6px;
+    padding: 6px 10px;
     font-size: 12px;
-    border: 1px solid #2a2a4a;
+    border: 1px solid #2a2a2c;
 }
 
 .refresh-button:hover {
-    background: #2a2a4a;
-    color: #ccc;
+    background: #1a1a1c;
+    color: #a09a92;
 }
 
 /* ── Progress Bar ─────────────────────────────────────────────── */
 
 progressbar trough {
-    background: #1a1a2e;
-    border-radius: 4px;
-    min-height: 6px;
+    background: #1a1a1c;
+    border-radius: 3px;
+    min-height: 4px;
 }
 
 progressbar progress {
-    background: #4fc3f7;
-    border-radius: 4px;
-    min-height: 6px;
+    background: #d4a845;
+    border-radius: 3px;
+    min-height: 4px;
 }
 
-/* ── Log ──────────────────────────────────────────────────────── */
+/* ── Log — green terminal ─────────────────────────────────────── */
 
 .log-expander {
-    color: #555;
-    font-size: 12px;
+    color: #4a4540;
+    font-size: 11px;
 }
 
 .log-view {
-    background: #0a0a14;
-    color: #58a6ff;
+    background: #0a0a0c;
+    color: #5a9a5a;
     font-family: monospace;
-    font-size: 11px;
-    border-radius: 6px;
+    font-size: 10px;
+    border-radius: 4px;
     padding: 8px;
 }
 
 /* ── Dialogs ──────────────────────────────────────────────────── */
 
 .dialog-label {
-    color: #ccc;
+    color: #a09a92;
     font-size: 13px;
 }
 
 /* ── Switches ─────────────────────────────────────────────────── */
 
 switch {
-    background: #2a2a4a;
-    border-radius: 12px;
-    min-width: 40px;
-    min-height: 20px;
+    background: #2a2a2c;
+    border-radius: 10px;
+    min-width: 36px;
+    min-height: 18px;
 }
 
 switch:checked {
-    background: #4fc3f7;
+    background: #00c853;
 }
 
 switch slider {
-    background: #e0e0e0;
-    border-radius: 10px;
-    min-width: 18px;
-    min-height: 18px;
+    background: #c8c4be;
+    border-radius: 9px;
+    min-width: 16px;
+    min-height: 16px;
+}
+
+/* ── Scale (swappiness slider) ────────────────────────────────── */
+
+scale trough {
+    background: #1a1a1c;
+    border-radius: 3px;
+    min-height: 4px;
+}
+
+scale trough highlight {
+    background: #d4a845;
+    border-radius: 3px;
+    min-height: 4px;
+}
+
+scale slider {
+    background: #d0ccc6;
+    border-radius: 8px;
+    min-width: 16px;
+    min-height: 16px;
+}
+
+scale value {
+    color: #6b6660;
+    font-size: 10px;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────── */
+
+scrollbar {
+    background: transparent;
+}
+
+scrollbar slider {
+    background: #2a2a2c;
+    border-radius: 4px;
+    min-width: 6px;
+}
+
+scrollbar slider:hover {
+    background: #3a3a3c;
+}
+
+/* ── Separator ────────────────────────────────────────────────── */
+
+separator {
+    background: #1a1a1c;
+    min-height: 1px;
 }
 """

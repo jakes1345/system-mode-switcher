@@ -30,10 +30,19 @@ class ProfileCard(Gtk.EventBox):
 
         self._frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         self._frame.get_style_context().add_class("profile-card")
-        self._frame.set_margin_start(8)
+        self._frame.set_margin_start(0)
         self._frame.set_margin_end(8)
-        self._frame.set_margin_top(3)
-        self._frame.set_margin_bottom(3)
+        self._frame.set_margin_top(1)
+        self._frame.set_margin_bottom(1)
+
+        # Always show profile color as left border
+        self._base_provider = Gtk.CssProvider()
+        self._base_provider.load_from_data(
+            f".profile-card {{ border-left-color: {profile.color}; }}".encode()
+        )
+        self._frame.get_style_context().add_provider(
+            self._base_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
         name_lbl = Gtk.Label(label=profile.name, xalign=0)
         name_lbl.get_style_context().add_class("profile-card-name")
@@ -65,12 +74,15 @@ class ProfileCard(Gtk.EventBox):
         ctx = self._frame.get_style_context()
         if active:
             ctx.add_class("active")
-            # Apply profile accent color to border
+            # Active card: thicker color stripe + tinted background
             provider = Gtk.CssProvider()
-            provider.load_from_data(
-                f".profile-card.active {{ border-color: {self._color}; }}".encode()
-            )
-            ctx.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+            provider.load_from_data((
+                f".profile-card.active {{"
+                f"  border-left: 4px solid {self._color};"
+                f"  background: shade({self._color}, 0.15);"
+                f"}}"
+            ).encode())
+            ctx.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 2)
         else:
             ctx.remove_class("active")
 
