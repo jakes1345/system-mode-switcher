@@ -169,7 +169,7 @@ def build_apply_script(
 
     for svc in services_to_start:
         lines.append(f'echo "START {svc}"')
-        lines.append(f"systemctl start {svc}")
+        lines.append(f"systemctl start {svc} 2>/dev/null || true")
 
     for proc_id, grep_pattern in processes_to_kill:
         lines.append(f'echo "KILL {proc_id}"')
