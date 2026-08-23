@@ -1,0 +1,23 @@
+[Unit]
+Description=Obsidian Citadel Control Plane Hub
+After=network.target dbus.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /opt/obsidian-citadel/services/hub/main.py
+Restart=always
+RestartSec=5
+
+# Enterprise Sandboxing
+ProtectSystem=full
+ProtectHome=read-only
+# Allow access to necessary kernel tunables
+ReadWritePaths=/proc/sys/vm /sys/class/drm /sys/devices/system/cpu /opt/obsidian-citadel
+
+# IO/CPU Priority for SRE Standards
+CPUSchedulingPolicy=other
+IOSchedulingClass=best-effort
+
+[Install]
+WantedBy=multi-user.target

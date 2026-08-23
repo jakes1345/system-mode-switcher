@@ -1,0 +1,15 @@
+[Unit]
+Description=Obsidian Citadel Kernel Orchestrator
+After=network.target multi-user.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 -m services.hub.main
+WorkingDirectory=/home/jack/system-mode-switcher
+Environment="PYTHONPATH=/home/jack/.local/lib/python3.12/site-packages:/home/jack/system-mode-switcher"
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+#!/bin/bash
+# 🏰 OBSIDIAN CITADEL — APPLY WRAPPER
+# This script is invoked by pkexec to run the generated configuration script as root.
+
+if [ -z "$1" ]; then
+    echo "Error: No script path provided."
+    exit 1
+fi
+
+SCRIPT_PATH="$1"
+
+if [ ! -f "$SCRIPT_PATH" ]; then
+    echo "Error: Script not found at $SCRIPT_PATH"
+    exit 1
+fi
+
+# Execute the generated bash script
+exec bash "$SCRIPT_PATH"
