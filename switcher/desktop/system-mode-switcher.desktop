@@ -1,10 +1,10 @@
 [Desktop Entry]
-Name=System Mode Switcher
-Comment=Switch between Gaming, Programming, AI, and custom system profiles
-Exec=python3 /opt/system-mode-switcher/switcher/__main__.py
-Icon=system-mode-switcher
+Name=Obsidian Citadel
+Comment=Enterprise-Grade Workstation Control — Telemetry & Mode Switching
+Exec=python3 /opt/obsidian-citadel/main.py
+Icon=obsidian-citadel
 Terminal=false
 Type=Application
 Categories=System;Settings;
-Keywords=gaming;performance;services;profile;mode;
+Keywords=gaming;performance;services;profile;mode;citadel;obsidian;
 StartupNotify=true
