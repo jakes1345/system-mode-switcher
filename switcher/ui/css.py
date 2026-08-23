@@ -1,326 +1,438 @@
-"""Application CSS — System Mode Switcher dark theme.
-
-Design: Industrial control panel. Warm darks, no blue spam.
-Each profile's color is the visual identity — the chrome stays neutral.
+"""
+Obsidian Citadel Apex Theme — ShadowSync Revision.
+Variable-driven glass dashboard aligned with the ShadowCypher ecosystem.
 """
 
 CSS = """
-/* ── Base — warm dark, not cold blue ──────────────────────────── */
+/* ── COLOR SYSTEM (Apex Standard) ── */
+@define-color bg_void #060a10;
+@define-color bg_obsidian #0a0f1a;
+@define-color bg_surface #111827;
+@define-color border_glow rgba(0, 242, 255, 0.4);
 
-window, .main-container {
-    background-color: #0d0d0f;
+@define-color accent_cyan #00d4ff;
+@define-color accent_violet #8b5cf6;
+@define-color accent_rose #f43f5e;
+@define-color accent_amber #f59e0b;
+@define-color accent_green #10b981;
+
+@define-color text_primary #f1f5f9;
+@define-color text_secondary #94a3b8;
+@define-color text_muted #475569;
+
+* { 
+    color: @text_primary;
+    font-family: 'Inter', 'Ubuntu', sans-serif;
 }
 
-headerbar {
-    background: #161618;
-    border-bottom: 1px solid #2a2a2c;
-    padding: 4px 8px;
+window {
+    background-color: @bg_void;
 }
 
-headerbar .title {
-    color: #e8e4df;
-    font-weight: bold;
-    font-size: 15px;
+/* ── HEADERBAR: COMMAND CENTER ── */
+
+.citadel-header {
+    background: linear-gradient(180deg, #0d1117 0%, @bg_obsidian 100%);
+    border-bottom: 1px solid rgba(0, 212, 255, 0.15);
+    padding: 4px 16px;
+    min-height: 52px;
+}
+
+.citadel-title {
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: 3px;
+    color: @accent_cyan;
+}
+
+.citadel-subtitle {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    color: @text_muted;
+}
+
+.citadel-stat {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 10px;
+    color: @text_secondary;
     letter-spacing: 0.5px;
 }
 
-headerbar .subtitle {
-    color: #6b6660;
-    font-size: 11px;
+/* ── TACTICAL TYPOGRAPHY ── */
+
+.section-label {
+    color: @text_muted;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    margin-bottom: 8px;
 }
 
-.system-stat {
-    color: #6b6660;
+.mono-meter {
+    font-family: 'JetBrains Mono', 'Fira Code', 'monospace';
     font-size: 11px;
-    font-family: monospace;
+    color: @accent_cyan;
+    letter-spacing: 1px;
 }
 
-.system-stat-value {
-    color: #d4a845;
-    font-size: 11px;
-    font-weight: bold;
-    font-family: monospace;
+.heavy-load {
+    font-family: 'JetBrains Mono', 'Fira Code', 'monospace';
+    font-size: 10px;
+    color: @accent_rose;
+    letter-spacing: 0.5px;
+    font-weight: 700;
 }
 
-/* ── Sidebar — dark panel ─────────────────────────────────────── */
+/* ── SIDEBAR: APEX CARDS ── */
 
 .sidebar {
-    background-color: #111113;
-    border-right: 1px solid #222224;
+    background-color: @bg_obsidian;
+    border-right: 1px solid rgba(255,255,255,0.05);
 }
 
 .sidebar-title {
-    color: #5a5550;
-    font-size: 10px;
-    font-weight: bold;
+    font-size: 11px;
+    font-weight: 900;
     letter-spacing: 3px;
+    color: @text_muted;
+}
+
+.profile-sidebar {
+    background-color: @bg_obsidian;
+    border-right: 1px solid rgba(255,255,255,0.05);
+    padding: 10px 0;
 }
 
 .profile-card {
-    background: #1a1a1c;
-    border: none;
-    border-left: 3px solid #333;
-    border-radius: 0px 8px 8px 0px;
-    padding: 10px 14px;
-    margin: 1px 0;
+    background-color: @bg_surface;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-left: 3px solid @accent_cyan;
+    margin: 6px 12px;
+    padding: 14px;
+    border-radius: 12px;
+    transition: all 200ms ease;
 }
 
-.profile-card:hover {
-    background: #222224;
-}
-
+.profile-card:hover { border-color: @accent_cyan; }
 .profile-card.active {
-    background: #1e1e20;
+    background: linear-gradient(135deg, alpha(@accent_violet, 0.2) 0%, transparent 100%);
+    border-color: @accent_cyan;
+    box-shadow: 0 0 15px rgba(0, 212, 255, 0.1);
 }
 
 .profile-card-name {
-    color: #e0dcd6;
+    font-weight: 800;
     font-size: 13px;
-    font-weight: bold;
-    letter-spacing: 0.3px;
+    color: @text_primary;
 }
 
 .profile-card-desc {
-    color: #5a5550;
     font-size: 10px;
+    color: @text_secondary;
     margin-top: 2px;
 }
 
 .save-profile-btn {
-    background: transparent;
-    border: 1px dashed #333;
-    border-radius: 6px;
-    padding: 8px 14px;
-    color: #4a4540;
-    font-size: 12px;
+    background-color: @bg_surface;
+    border: 1px dashed rgba(0, 212, 255, 0.3);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: @accent_cyan;
+    transition: all 200ms ease;
 }
 
 .save-profile-btn:hover {
-    border-color: #d4a845;
-    color: #d4a845;
+    background-color: alpha(@accent_cyan, 0.1);
+    border-color: @accent_cyan;
 }
 
-/* ── Service Panel ────────────────────────────────────────────── */
+/* ── HARDWARE NUCLEUS: NEON GRID ── */
 
-.panel-bg {
-    background-color: #0d0d0f;
+.core-node {
+    margin: 4px;
+    background-color: rgba(2, 6, 23, 0.6);
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.08);
+    min-width: 60px;
+    min-height: 60px;
+    transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+.core-node.load-standby { 
+    background-color: rgba(2, 6, 23, 0.8); 
+    border-color: rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.02);
+}
+
+.core-node.load-low { 
+    background-color: rgba(2, 6, 23, 0.6); 
+    border-color: rgba(0, 212, 255, 0.1);
+    box-shadow: 0 0 5px rgba(0, 212, 255, 0.1);
+}
+
+.core-node.load-med { background-color: @accent_green; box-shadow: 0 0 12px @accent_green; border-color: @accent_green; }
+.core-node.load-high { background-color: @accent_amber; box-shadow: 0 0 15px @accent_amber; border-color: @accent_amber; }
+.core-node.load-max { background-color: @accent_rose; box-shadow: 0 0 20px @accent_rose; border-color: @accent_rose; }
+
+/* ── SERVICE PANEL ── */
+
+.panel-bg { background-color: @bg_obsidian; }
 
 .search-entry {
-    background: #161618;
-    color: #c8c4be;
-    border: 1px solid #2a2a2c;
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 12px;
-    caret-color: #d4a845;
-}
-
-.search-entry:focus {
-    border-color: #d4a845;
-}
-
-.section-label {
-    color: #6b6660;
-    font-size: 10px;
-    font-weight: bold;
-    letter-spacing: 2px;
+    background-color: @bg_surface;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 8px;
+    color: @text_primary;
 }
 
 .service-row {
-    background: #141416;
-    border-left: 2px solid #252527;
-    border-radius: 0px 6px 6px 0px;
-    padding: 7px 12px;
-    margin: 1px 0;
-}
-
-.service-row:hover {
-    background: #1a1a1c;
+    padding: 12px 18px;
+    border-bottom: 2px solid rgba(255,255,255,0.02);
 }
 
 .service-name {
-    color: #d0ccc6;
+    font-weight: 700;
     font-size: 12px;
-    font-weight: 600;
+    color: @text_primary;
 }
 
 .service-desc {
-    color: #4a4540;
     font-size: 10px;
+    color: @text_muted;
 }
 
+/* ── STATUS INDICATORS ── */
+
 .status-dot {
-    font-size: 9px;
+    font-size: 12px;
 }
 
 .status-dot.on {
-    color: #00e676;
+    color: @accent_green;
+    text-shadow: 0 0 6px @accent_green;
 }
 
 .status-dot.off {
-    color: #3a3835;
+    color: @accent_rose;
+    text-shadow: 0 0 4px alpha(@accent_rose, 0.3);
+}
+
+/* ── SWITCHES ── */
+
+switch {
+    background-color: @bg_surface;
+    border: 1px solid @text_muted;
+    border-radius: 20px;
+    min-width: 40px;
+    min-height: 20px;
+}
+
+switch:checked {
+    background-color: @accent_cyan;
+    border-color: @accent_cyan;
+}
+
+switch slider {
+    border-radius: 50%;
+    min-width: 16px;
+    min-height: 16px;
+    background-color: @text_primary;
+}
+
+/* ── HARDWARE COCKPIT TWEAKS ── */
+
+.tweak-row {
+    padding: 8px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
 }
 
 .tweak-label {
-    color: #a09a92;
-    font-size: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: @text_secondary;
 }
 
-.tweak-row {
-    background: #141416;
-    border-left: 2px solid #252527;
-    border-radius: 0px 6px 6px 0px;
-    padding: 7px 12px;
-    margin: 1px 0;
+scale trough {
+    background-color: @bg_surface;
+    border-radius: 4px;
+    min-height: 6px;
 }
 
-/* ── Bottom Bar ───────────────────────────────────────────────── */
+scale highlight {
+    background-color: @accent_cyan;
+    border-radius: 4px;
+}
+
+scale slider {
+    background-color: @accent_cyan;
+    border-radius: 50%;
+    min-width: 14px;
+    min-height: 14px;
+    box-shadow: 0 0 6px @accent_cyan;
+}
+
+combobox button {
+    background-color: @bg_surface;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+}
+
+/* ── BOTTOM ACTION BAR ── */
 
 .bottom-bar {
-    background: #111113;
-    border-top: 1px solid #222224;
-    padding: 8px 16px;
+    background-color: @bg_obsidian;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    padding: 10px;
 }
 
 .apply-button {
-    background: #d4a845;
-    color: #0d0d0f;
-    border-radius: 6px;
-    padding: 8px 28px;
-    font-size: 13px;
-    font-weight: bold;
+    background: linear-gradient(135deg, @accent_cyan 0%, @accent_violet 100%);
+    color: #020617;
+    font-weight: 900;
+    font-size: 12px;
+    letter-spacing: 2px;
+    padding: 10px 28px;
+    border-radius: 8px;
     border: none;
-    min-width: 200px;
-    letter-spacing: 0.5px;
+    transition: all 200ms ease;
 }
 
 .apply-button:hover {
-    background: #e0b94f;
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
 }
 
 .apply-button:disabled {
-    background: #2a2a2c;
-    color: #4a4540;
+    background: @bg_surface;
+    color: @text_muted;
 }
 
-.refresh-button {
-    background: transparent;
-    color: #5a5550;
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 12px;
-    border: 1px solid #2a2a2c;
-}
-
-.refresh-button:hover {
-    background: #1a1a1c;
-    color: #a09a92;
-}
-
-/* ── Progress Bar ─────────────────────────────────────────────── */
+/* ── PROGRESS BAR ── */
 
 progressbar trough {
-    background: #1a1a1c;
-    border-radius: 3px;
+    background-color: @bg_surface;
+    border-radius: 4px;
     min-height: 4px;
 }
 
 progressbar progress {
-    background: #d4a845;
-    border-radius: 3px;
+    background: linear-gradient(90deg, @accent_cyan 0%, @accent_violet 100%);
+    border-radius: 4px;
     min-height: 4px;
+    transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ── Log — green terminal ─────────────────────────────────────── */
-
-.log-expander {
-    color: #4a4540;
-    font-size: 11px;
-}
+/* ── LOG CONSOLE: VOID THEME ── */
 
 .log-view {
-    background: #0a0a0c;
-    color: #5a9a5a;
-    font-family: monospace;
-    font-size: 10px;
-    border-radius: 4px;
-    padding: 8px;
+    background-color: @bg_void;
+    color: @text_primary;
+    font-family: 'JetBrains Mono', 'monospace';
+    font-size: 11px;
+    padding: 10px;
 }
 
-/* ── Dialogs ──────────────────────────────────────────────────── */
+textview text {
+     background-color: @bg_void;
+}
+
+scrolledwindow viewport {
+    background-color: transparent;
+}
+
+/* ── LEVEL BAR (Disk Pressure) ── */
+
+levelbar block.filled {
+    background-color: @accent_cyan;
+    border-radius: 2px;
+    transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+levelbar block.empty {
+    background-color: @bg_surface;
+}
+
+levelbar trough {
+    background-color: @bg_surface;
+    border-radius: 4px;
+    min-height: 10px;
+}
+
+/* ── SEPARATORS ── */
+
+separator {
+    background-color: rgba(255,255,255,0.05);
+    min-height: 1px;
+}
+
+/* ── DIALOG STYLING ── */
+
+dialog {
+    background-color: @bg_obsidian;
+}
 
 .dialog-label {
-    color: #a09a92;
-    font-size: 13px;
+    font-weight: 700;
+    font-size: 12px;
+    color: @text_secondary;
 }
 
-/* ── Switches ─────────────────────────────────────────────────── */
+/* ── EXPANDER (Log Console) ── */
 
-switch {
-    background: #2a2a2c;
-    border-radius: 10px;
-    min-width: 36px;
-    min-height: 18px;
-}
-
-switch:checked {
-    background: #00c853;
-}
-
-switch slider {
-    background: #c8c4be;
-    border-radius: 9px;
-    min-width: 16px;
-    min-height: 16px;
-}
-
-/* ── Scale (swappiness slider) ────────────────────────────────── */
-
-scale trough {
-    background: #1a1a1c;
-    border-radius: 3px;
-    min-height: 4px;
-}
-
-scale trough highlight {
-    background: #d4a845;
-    border-radius: 3px;
-    min-height: 4px;
-}
-
-scale slider {
-    background: #d0ccc6;
-    border-radius: 8px;
-    min-width: 16px;
-    min-height: 16px;
-}
-
-scale value {
-    color: #6b6660;
+expander title {
     font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: @text_muted;
 }
 
-/* ── Scrollbar ────────────────────────────────────────────────── */
+/* ── MAIN CONTAINER ── */
 
-scrollbar {
-    background: transparent;
+.main-container {
+    background-color: @bg_void;
 }
+
+/* ── SCROLLBAR STYLING ── */
 
 scrollbar slider {
-    background: #2a2a2c;
-    border-radius: 4px;
     min-width: 6px;
+    border-radius: 3px;
+    background-color: rgba(255,255,255,0.1);
 }
 
 scrollbar slider:hover {
-    background: #3a3a3c;
+    background-color: rgba(0, 212, 255, 0.3);
 }
 
-/* ── Separator ────────────────────────────────────────────────── */
+scrollbar trough {
+    background-color: transparent;
+}
 
-separator {
-    background: #1a1a1c;
-    min-height: 1px;
+/* ── BUTTON GENERAL ── */
+
+button {
+    background-color: @bg_surface;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    padding: 4px 8px;
+    transition: all 150ms ease;
+}
+
+button:hover {
+    background-color: alpha(@accent_cyan, 0.1);
+    border-color: @accent_cyan;
+}
+
+headerbar button {
+    background-color: transparent;
+    border: none;
+}
+
+headerbar button:hover {
+    background-color: alpha(@accent_cyan, 0.1);
 }
 """

@@ -80,6 +80,7 @@ class ProfileCard(Gtk.EventBox):
                 f".profile-card.active {{"
                 f"  border-left: 4px solid {self._color};"
                 f"  background: shade({self._color}, 0.15);"
+                f"  transition: all 0.2s ease-in-out;"
                 f"}}"
             ).encode())
             ctx.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 2)

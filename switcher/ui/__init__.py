@@ -1,1 +1,1 @@
-"""UI components for System Mode Switcher."""
+"""UI components for Obsidian Citadel."""

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import threading
+import time
 from datetime import datetime
+from pathlib import Path
 
 import gi
 
@@ -21,94 +24,215 @@ from switcher.ui.dialogs import (
 from switcher.ui.profile_sidebar import ProfileSidebar
 from switcher.ui.service_panel import ServicePanel
 
-Notify.init("System Mode Switcher")
+Notify.init("Obsidian Citadel")
 
 
 class SwitcherWindow(Gtk.ApplicationWindow):
     def __init__(self, app: Gtk.Application, config: Config):
-        super().__init__(application=app, title="System Mode Switcher")
-        self.set_default_size(900, 700)
+        super().__init__(application=app, title="Obsidian Citadel")
+        self.set_default_size(1100, 750)
         self.set_position(Gtk.WindowPosition.CENTER)
-        self.set_icon_name("preferences-system")
+        
+        # ── Visual Identity ──────────────────────────────────────────────────
+        try:
+            root = Path(__file__).parent.parent
+            paths = [
+                root / "assets" / "icon.png",        # primary — always exists
+                root / "assets" / "citadel-apex.png",
+                root / "assets" / "citadel_icon.png",
+            ]
+            
+            icon_path = None
+            for p in paths:
+                if p.exists():
+                    icon_path = str(p)
+                    break
+            
+            if icon_path:
+                self.set_icon_from_file(icon_path)
+            else:
+                self.set_icon_name("preferences-system")
+        except (OSError, RuntimeError):
+            self.set_icon_name("preferences-system")
 
         self._config = config
         self._active_profile: str | None = None
         self._sudo_password: str | None = None
 
-        self._build_headerbar()
         self._build_layout()
         self._setup_shortcuts()
 
-        # Initial load
-        self.panel.refresh_switches()
-        self._detect_active_profile()
-        self._update_system_stats()
+        self._start_telemetry_heartbeat()
+        self._async_initial_refresh()
 
-        # Auto-refresh every 30s
         GLib.timeout_add_seconds(30, self._auto_refresh)
+
+    def _async_initial_refresh(self) -> None:
+        self.panel.refresh_switches()
+        GLib.timeout_add(800, self._detect_after_probe)
+
+    def _detect_after_probe(self) -> bool:
+        self._detect_active_profile()
+        return False
 
     # ── HeaderBar ─────────────────────────────────────────────────────────
 
-    def _build_headerbar(self) -> None:
+    def _build_headerbar(self) -> Gtk.HeaderBar:
         hb = Gtk.HeaderBar()
         hb.set_show_close_button(True)
-        hb.set_title("System Mode Switcher")
-        hb.set_subtitle("Manage system profiles")
+        hb.get_style_context().add_class("citadel-header")
+        
+        # Left side: Title
+        title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        title = Gtk.Label(label="OBSIDIAN CITADEL")
+        title.get_style_context().add_class("citadel-title")
+        subtitle = Gtk.Label(label="SYSTEM ANALYTICS & MODE CONTROL")
+        subtitle.get_style_context().add_class("citadel-subtitle")
+        title_box.pack_start(title, False, False, 0)
+        title_box.pack_start(subtitle, False, False, 0)
+        hb.set_custom_title(title_box)
 
-        # System stats on the right
-        stats_box = Gtk.Box(spacing=12)
+        # Right side: Core Vitals
+        vitals_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        
+        # Hub Status
+        self.hub_status_label = Gtk.Label(label="🔴 HUB OFFLINE")
+        self.hub_status_label.get_style_context().add_class("citadel-stat")
+        vitals_box.pack_start(self.hub_status_label, False, False, 0)
 
-        ram_label = Gtk.Label(label="RAM:")
-        ram_label.get_style_context().add_class("system-stat")
-        stats_box.pack_start(ram_label, False, False, 0)
+        # GPU Detail
+        self.gpu_vitals_label = Gtk.Label()
+        self.gpu_vitals_label.get_style_context().add_class("citadel-stat")
+        vitals_box.pack_start(self.gpu_vitals_label, False, False, 0)
 
-        self._ram_value = Gtk.Label(label="...")
-        self._ram_value.get_style_context().add_class("system-stat-value")
-        stats_box.pack_start(self._ram_value, False, False, 0)
-
-        cpu_label = Gtk.Label(label="CPU:")
-        cpu_label.get_style_context().add_class("system-stat")
-        stats_box.pack_start(cpu_label, False, False, 0)
-
-        self._cpu_value = Gtk.Label(label="...")
-        self._cpu_value.get_style_context().add_class("system-stat-value")
-        stats_box.pack_start(self._cpu_value, False, False, 0)
+        # Global CPU/RAM
+        self.ram_cpu_label = Gtk.Label()
+        self.ram_cpu_label.get_style_context().add_class("citadel-stat")
+        vitals_box.pack_start(self.ram_cpu_label, False, False, 0)
 
         # Refresh button
         refresh_btn = Gtk.Button.new_from_icon_name("view-refresh-symbolic", Gtk.IconSize.BUTTON)
-        refresh_btn.set_tooltip_text("Refresh status")
-        refresh_btn.get_style_context().add_class("refresh-button")
         refresh_btn.connect("clicked", lambda _: self._full_refresh())
-        stats_box.pack_start(refresh_btn, False, False, 0)
+        vitals_box.pack_start(refresh_btn, False, False, 0)
 
-        hb.pack_end(stats_box)
-        self.set_titlebar(hb)
+        hb.pack_end(vitals_box)
+        return hb
 
     # ── Layout ────────────────────────────────────────────────────────────
 
     def _build_layout(self) -> None:
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        # HeaderBar — built ONCE
+        self.set_titlebar(self._build_headerbar())
 
-        # Two-pane: sidebar + panel
-        paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
-        paned.set_position(230)
+        # Main layout: 3 columns × 2 rows
+        # ┌──────────┬──────────────┬─────────────┐
+        # │          │              │             │
+        # │ sidebar  │   panel      │  telemetry  │
+        # │ (220px)  │   (expand)   │  (320px)    │
+        # │          ├──────────────┤             │
+        # │          │  bottom bar  │             │
+        # └──────────┴──────────────┴─────────────┘
+        self.main_grid = Gtk.Grid()
+        self.main_grid.set_column_spacing(0)
+        self.main_grid.set_row_spacing(0)
+        self.main_grid.get_style_context().add_class("main-container")
+        self.add(self.main_grid)
 
+        # 1. Sidebar (Profiles) — fixed width, spans both rows
         self.sidebar = ProfileSidebar(
             profiles=self._config.profiles,
             on_select=self._on_profile_select,
             on_delete=self._on_profile_delete,
             on_save=self._on_save_profile,
         )
-        paned.pack1(self.sidebar, resize=False, shrink=False)
+        self.sidebar.set_hexpand(False)
+        self.sidebar.set_vexpand(True)
+        self.main_grid.attach(self.sidebar, 0, 0, 1, 2)
 
+        # 2. Service Matrix — center, EXPANDS to fill all extra space
         self.panel = ServicePanel(self._config)
-        paned.pack2(self.panel, resize=True, shrink=False)
+        self.panel.set_hexpand(True)
+        self.panel.set_vexpand(True)
+        self.main_grid.attach(self.panel, 1, 0, 1, 1)
 
-        outer.pack_start(paned, True, True, 0)
+        # 3. Telemetry Hub — fixed width, spans both rows
+        self.telemetry_hub = self._build_citadel_telemetry()
+        self.telemetry_hub.set_hexpand(False)
+        self.telemetry_hub.set_vexpand(True)
+        self.telemetry_hub.set_size_request(320, -1)
+        self.main_grid.attach(self.telemetry_hub, 2, 0, 1, 2)
 
-        # Bottom bar
+        # 4. Bottom Action Bar — under center column only, no extra vexpand
+        self.bottom_bar = self._build_bottom_bar()
+        self.bottom_bar.set_hexpand(True)
+        self.bottom_bar.set_vexpand(False)
+        self.main_grid.attach(self.bottom_bar, 1, 1, 1, 1)
+
+    def _build_citadel_telemetry(self) -> Gtk.Box:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
+        box.get_style_context().add_class("panel-bg")
+        box.set_hexpand(True)
+        box.set_margin_start(20)
+        box.set_margin_end(20)
+        box.set_margin_top(20)
+
+        # ── TACTICAL PULSE (60Hz Logic) ──
+        pulse_label = Gtk.Label(label="TACTICAL PULSE")
+        pulse_label.get_style_context().add_class("section-label")
+        box.pack_start(pulse_label, False, False, 0)
+        
+        self.pulse_cpu = Gtk.Label(label="CPU_LOAD: [..........] 0%")
+        self.pulse_mem = Gtk.Label(label="MEM_PRESSURE: [..........] 0%")
+        self.pulse_net = Gtk.Label(label="NET_ENTROPY: 0.00bps")
+        
+        for lbl in [self.pulse_cpu, self.pulse_mem, self.pulse_net]:
+            lbl.get_style_context().add_class("mono-meter")
+            lbl.set_halign(Gtk.Align.START)
+            box.pack_start(lbl, False, False, 2)
+            
+        self.heavy_load_label = Gtk.Label(label="")
+        self.heavy_load_label.get_style_context().add_class("heavy-load")
+        self.heavy_load_label.set_halign(Gtk.Align.START)
+        box.pack_start(self.heavy_load_label, False, False, 4)
+
+        # ── CPU NUCLEUS ──
+        cl = Gtk.Label(label="HARDWARE NUCLEUS")
+        cl.get_style_context().add_class("section-label")
+        cl.set_margin_top(20)
+        box.pack_start(cl, False, False, 0)
+
+        self.core_grid = Gtk.Grid(column_spacing=10, row_spacing=10)
+        self.core_grid.set_halign(Gtk.Align.CENTER)
+        self.core_nodes = []
+        self._core_load_classes: list[str] = []
+        self._cpu_count = os.cpu_count() or 12  # 12 for Ryzen 5 3600
+        _cols = 4  # 4 cols → 3 rows for 12 CPUs
+        for i in range(self._cpu_count):
+            node = Gtk.Box()
+            node.set_size_request(56, 56)
+            node.get_style_context().add_class("core-node")
+            self.core_grid.attach(node, i % _cols, i // _cols, 1, 1)
+            self.core_nodes.append(node)
+            self._core_load_classes.append("")
+        box.pack_start(self.core_grid, False, False, 0)
+
+        # Disk Pressure
+        dk_label = Gtk.Label(label="DISK FLOW PRESSURE")
+        dk_label.get_style_context().add_class("section-label")
+        dk_label.set_margin_top(20)
+        box.pack_start(dk_label, False, False, 0)
+        
+        self.disk_bar = Gtk.LevelBar()
+        self.disk_bar.set_min_value(0)
+        self.disk_bar.set_max_value(100)
+        box.pack_start(self.disk_bar, False, False, 0)
+
+        return box
+
+    def _build_bottom_bar(self) -> Gtk.Box:
         bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         bottom.get_style_context().add_class("bottom-bar")
+        bottom.set_margin_bottom(10)
 
         # Progress bar
         self._progress = Gtk.ProgressBar()
@@ -121,14 +245,11 @@ class SwitcherWindow(Gtk.ApplicationWindow):
 
         # Log expander
         self._log_buffer = Gtk.TextBuffer()
-        log_expander = Gtk.Expander(label="Log")
-        log_expander.get_style_context().add_class("log-expander")
+        log_expander = Gtk.Expander(label="LOG CONSOLE")
         log_scroll = Gtk.ScrolledWindow()
-        log_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        log_scroll.set_size_request(-1, 100)
+        log_scroll.set_size_request(-1, 80)
         self._log_view = Gtk.TextView(buffer=self._log_buffer)
         self._log_view.set_editable(False)
-        self._log_view.set_cursor_visible(False)
         self._log_view.get_style_context().add_class("log-view")
         log_scroll.add(self._log_view)
         log_expander.add(log_scroll)
@@ -137,12 +258,16 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         self._apply_btn = Gtk.Button(label="Apply Changes  (Ctrl+Enter)")
         self._apply_btn.get_style_context().add_class("apply-button")
         self._apply_btn.connect("clicked", self._on_apply)
+        
+        shortcut_lbl = Gtk.Label(label="Switch Profiles: Ctrl+1..9")
+        shortcut_lbl.get_style_context().add_class("citadel-subtitle")
+        shortcut_lbl.set_margin_end(15)
+        
         btn_row.pack_end(self._apply_btn, False, False, 0)
+        btn_row.pack_end(shortcut_lbl, False, False, 0)
 
         bottom.pack_start(btn_row, False, False, 0)
-        outer.pack_start(bottom, False, False, 0)
-
-        self.add(outer)
+        return bottom
 
     # ── Keyboard Shortcuts ────────────────────────────────────────────────
 
@@ -205,6 +330,9 @@ class SwitcherWindow(Gtk.ApplicationWindow):
                 swappiness=desired["swappiness"],
                 compositor_unredirect=desired["unredirect"],
                 gpu_performance=desired["gpu_perf"],
+                cpu_governor=desired.get("cpu_gov", "performance"),
+                gpu_power_limit=desired.get("gpu_pl"),
+                thp_mode=desired.get("thp", "madvise"),
             ),
         )
         self._config.profiles[name] = profile
@@ -243,204 +371,56 @@ class SwitcherWindow(Gtk.ApplicationWindow):
     # ── Apply ─────────────────────────────────────────────────────────────
 
     def _on_apply(self, _button) -> None:
-        desired = self.panel.collect_desired_state()
-        changes = self._build_change_list(desired)
-
-        if not changes:
-            self._log("No changes to apply.")
+        if not self._active_profile:
+            self._log("No profile selected.")
             return
 
-        if not confirm_apply_dialog(self, [c["text"] for c in changes]):
+        if not confirm_apply_dialog(self, [f"Deploy {self._active_profile} profile via Hub?"]):
             return
-
-        # Ask for sudo password if we don't have one yet (fallback for pkexec)
-        if self._sudo_password is None:
-            self._sudo_password = self._ask_sudo_password()
-            if not self._sudo_password:
-                self._log("No password provided — will try pkexec only.")
 
         self._apply_btn.set_sensitive(False)
-        self._apply_btn.set_label("Applying...")
-        self._progress.set_fraction(0)
+        self._apply_btn.set_label("Applying via Citadel Hub...")
+        self._progress.set_fraction(0.5)
         self._progress.show()
 
-        thread = threading.Thread(
-            target=self._apply_worker, args=(desired, changes), daemon=True
-        )
+        thread = threading.Thread(target=self._apply_grpc_worker, args=(self._active_profile,), daemon=True)
         thread.start()
 
-    def _build_change_list(self, desired: dict) -> list[dict]:
-        """Build list of change dicts with type, key, display text, and metadata."""
-        changes = []
+    def _apply_grpc_worker(self, profile_name: str) -> None:
+        import grpc
+        import os, sys
+        hub_path = os.path.join(os.path.dirname(__file__), '../../services/hub')
+        if hub_path not in sys.path: sys.path.insert(0, hub_path)
+        import citadel_pb2
+        import citadel_pb2_grpc
+        
+        try:
+            channel = grpc.insecure_channel('localhost:50051')
+            stub = citadel_pb2_grpc.CitadelServiceStub(channel)
+            req = citadel_pb2.SetProfileRequest(profile_name=profile_name)
+            resp = stub.SetProfile(req)
+            GLib.idle_add(self._log, f"Hub Response: {resp.message}")
+            ok = resp.success
+        except Exception as e:
+            GLib.idle_add(self._log, f"Hub Error: {e}")
+            ok = False
 
-        for svc_name, want in desired["services"].items():
-            current = backend.is_service_active(svc_name)
-            if want and not current:
-                display = self.panel.service_rows[svc_name].name_label.get_text()
-                changes.append({
-                    "type": "start_svc", "key": svc_name,
-                    "text": f"START  {display} ({svc_name})",
-                })
-            elif not want and current:
-                display = self.panel.service_rows[svc_name].name_label.get_text()
-                changes.append({
-                    "type": "stop_svc", "key": svc_name,
-                    "text": f"STOP   {display} ({svc_name})",
-                })
+        GLib.idle_add(self._finish_apply, ok)
 
-        for proc_id, want in desired["processes"].items():
-            proc = next((p for p in self._config.processes if p.id == proc_id), None)
-            if not proc:
-                continue
-            current = backend.is_process_running(proc.grep)
-            if want and not current:
-                changes.append({
-                    "type": "start_proc", "key": proc_id,
-                    "text": f"START  {proc.display}",
-                    "start_cmd": proc.start_cmd,
-                })
-            elif not want and current:
-                changes.append({
-                    "type": "stop_proc", "key": proc_id,
-                    "text": f"KILL   {proc.display}",
-                    "grep": proc.grep,
-                })
-
-        current_swap = backend.get_swappiness()
-        if desired["swappiness"] != current_swap:
-            changes.append({
-                "type": "swap", "key": "swappiness",
-                "text": f"SET    swappiness {current_swap} -> {desired['swappiness']}",
-            })
-
-        if desired["unredirect"] != backend.get_compositor_unredirect():
-            changes.append({
-                "type": "comp", "key": "compositor",
-                "text": f"SET    compositor unredirect -> {desired['unredirect']}",
-            })
-
-        gpu = backend.get_gpu_performance_mode()
-        if gpu is not None and gpu != desired["gpu_perf"]:
-            label = "max" if desired["gpu_perf"] else "adaptive"
-            changes.append({
-                "type": "gpu", "key": "gpu",
-                "text": f"SET    GPU performance -> {label}",
-            })
-
-        return changes
-
-    def _ask_sudo_password(self) -> str | None:
-        """Ask for sudo password via GTK dialog."""
-        dialog = Gtk.Dialog(
-            title="Authentication Required",
-            parent=self,
-            flags=Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
-        )
-        dialog.add_buttons("_Cancel", Gtk.ResponseType.CANCEL, "_OK", Gtk.ResponseType.OK)
-
-        box = dialog.get_content_area()
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-        box.set_spacing(8)
-
-        box.pack_start(
-            Gtk.Label(label="Enter your sudo password to manage services:"),
-            False, False, 0,
-        )
-
-        entry = Gtk.Entry()
-        entry.set_visibility(False)
-        entry.set_invisible_char("*")
-        entry.connect("activate", lambda _e: dialog.response(Gtk.ResponseType.OK))
-        box.pack_start(entry, False, False, 0)
-
-        dialog.show_all()
-        response = dialog.run()
-        pw = entry.get_text() if response == Gtk.ResponseType.OK else None
-        dialog.destroy()
-        return pw or None
-
-    def _apply_worker(self, desired: dict, changes: list[dict]) -> None:
-        """Background thread — applies changes via pkexec batch script."""
-        total = len(changes)
-
-        # Separate changes by type using structured data (no string parsing)
-        services_start = [c["key"] for c in changes if c["type"] == "start_svc"]
-        services_stop = [c["key"] for c in changes if c["type"] == "stop_svc"]
-        procs_start = [(c["key"], c["start_cmd"]) for c in changes if c["type"] == "start_proc"]
-        procs_kill = [(c["key"], c["grep"]) for c in changes if c["type"] == "stop_proc"]
-        new_swap = desired["swappiness"] if any(c["type"] == "swap" for c in changes) else None
-        gpu_change = any(c["type"] == "gpu" for c in changes)
-
-        # Build and run privileged script
-        needs_privileged = services_start or services_stop or procs_kill or procs_start or new_swap is not None
-
-        if needs_privileged:
-            script = backend.build_apply_script(
-                services_to_start=services_start,
-                services_to_stop=services_stop,
-                processes_to_start=procs_start,
-                processes_to_kill=procs_kill,
-                swappiness=new_swap,
-                compositor_unredirect=None,  # handled separately (user-level)
-                gpu_performance=desired["gpu_perf"] if gpu_change and backend.GPU_VENDOR == "amd" else None,
-            )
-            GLib.idle_add(self._log, "Running privileged operations...")
-            ok, output = backend.run_apply_script(script, sudo_password=self._sudo_password)
-
-            # Parse output for progress
-            done = 0
-            for line in output.splitlines():
-                line = line.strip()
-                if line and not line.startswith("[sudo]"):
-                    done += 1
-                    frac = min(done / total, 0.95)
-                    GLib.idle_add(self._progress.set_fraction, frac)
-                    GLib.idle_add(self._log, f"  {line}")
-
-            if not ok:
-                GLib.idle_add(self._log, f"ERROR: Some operations failed.")
-
-        # Compositor (user-level, no pkexec)
-        if any(c["type"] == "comp" for c in changes):
-            ok, err = backend.set_compositor_unredirect(desired["unredirect"])
-            val = "on" if desired["unredirect"] else "off"
-            GLib.idle_add(self._log, f"  Compositor unredirect -> {val}")
-            if not ok:
-                GLib.idle_add(self._log, f"  FAILED: {err}")
-
-        # NVIDIA GPU (user-level)
-        if gpu_change and backend.GPU_VENDOR == "nvidia":
-            ok, err = backend.set_nvidia_gpu_mode(desired["gpu_perf"])
-            label = "max performance" if desired["gpu_perf"] else "adaptive"
-            GLib.idle_add(self._log, f"  GPU -> {label}")
-            if not ok:
-                GLib.idle_add(self._log, f"  FAILED: {err}")
-
-        GLib.idle_add(self._finish_apply, total)
-
-    def _finish_apply(self, total: int) -> None:
+    def _finish_apply(self, ok: bool) -> None:
         self._apply_btn.set_sensitive(True)
         self._apply_btn.set_label("Apply Changes  (Ctrl+Enter)")
-        self._progress.set_fraction(1.0)
+        self._progress.set_fraction(1.0 if ok else 0.0)
         GLib.timeout_add(2000, lambda: (self._progress.hide(), False)[-1])
 
         self.panel.refresh_switches()
         self._detect_active_profile()
 
-        profile_msg = f" ({self._active_profile})" if self._active_profile else ""
-        msg = f"Done! {total} change(s) applied{profile_msg}."
+        msg = f"Done! Profile applied." if ok else "Failed to apply profile."
         self._log(msg)
 
-        # Desktop notification
         try:
-            n = Notify.Notification.new(
-                "System Mode Switcher",
-                msg,
-                "preferences-system",
-            )
+            n = Notify.Notification.new("Obsidian Citadel", msg, "preferences-system")
             n.show()
         except Exception:
             pass
@@ -448,26 +428,123 @@ class SwitcherWindow(Gtk.ApplicationWindow):
     # ── Auto-Refresh ──────────────────────────────────────────────────────
 
     def _auto_refresh(self) -> bool:
-        """Called every 30s. Updates status dots and system stats only."""
+        """Called every 30s. Updates status dots only."""
         self.panel.refresh_status()
-        self._update_system_stats()
         return True  # keep timer alive
 
     def _full_refresh(self) -> None:
-        """Manual refresh — updates switches too."""
+        """Manual refresh — updates switches and profile detection."""
         self.panel.refresh_switches()
-        self._update_system_stats()
-        self._detect_active_profile()
+        GLib.timeout_add(800, self._detect_after_probe)
         self._log("Status refreshed.")
 
-    def _update_system_stats(self) -> None:
-        def worker():
-            used, total = backend.get_ram_info()
-            cpu = backend.get_cpu_percent()
-            GLib.idle_add(self._ram_value.set_text, f"{used}/{total} GB")
-            GLib.idle_add(self._cpu_value.set_text, f"{cpu}%")
+    def _start_telemetry_heartbeat(self) -> None:
+        """High-Performance Telemetry Loop — Native Thread Sampling."""
+        if hasattr(self, "_heartbeat_active"): return
+        self._heartbeat_active = True
+        def _apply_vitals_to_ui(vitals: dict) -> bool:
+            # 1. Update Mono Meters (Apex Pulse)
+            if not getattr(self, "_hub_connected", False):
+                self._hub_connected = True
+                self.hub_status_label.set_text("🟢 HUB CONNECTED")
+            
+            cpu = vitals['cpu_total']
+            mem = vitals['mem_percent']
+            
+            cpu = max(0, min(100, cpu))
+            mem = max(0, min(100, mem))
+            
+            cpu_filled = max(0, min(10, int(cpu / 10)))
+            cpu_empty = max(0, 10 - cpu_filled)
+            self.pulse_cpu.set_text(f"CPU_LOAD: [{'|'*cpu_filled}{'.'*cpu_empty}] {cpu}%")
+            
+            mem_filled = max(0, min(10, int(mem / 10)))
+            mem_empty = max(0, 10 - mem_filled)
+            self.pulse_mem.set_text(f"MEM_PRESSURE: [{'|'*mem_filled}{'.'*mem_empty}] {mem}%")
+            self.pulse_net.set_text(f"NET_ENTROPY: {vitals['net_speed']} KB/s")
 
-        threading.Thread(target=worker, daemon=True).start()
+            # 2. Update Legacy Labels (Header)
+            self.ram_cpu_label.set_text(f"CPU: {cpu}%  |  RAM: {vitals['ram_used']}/{vitals['ram_total']} GB")
+
+            # 3. Update GPU
+            v = vitals['gpu']
+            vram_gb = round(v["vram_used"] / (1024**3), 1) if v["vram_total"] > 0 else 0
+            vram_tot = round(v["vram_total"] / (1024**3), 1) if v["vram_total"] > 0 else 0
+            self.gpu_vitals_label.set_text(f"GPU: {v['temp']}°C  |  {int(v['utilization'])}% Util  |  {int(v['fan'])}% Fan  |  VRAM: {vram_gb}/{vram_tot} GB  |  {int(v['power'])}W")
+            
+            # Top process
+            if vitals.get('top_process') and cpu > 15:
+                self.heavy_load_label.set_text(f"HEAVY_LOAD: {vitals['top_process']}")
+            else:
+                self.heavy_load_label.set_text("")
+
+            # 4. Update Nucleus — only mutate CSS when bucket actually changes
+            for i, val in enumerate(vitals['cores'][:self._cpu_count]):
+                if i >= len(self.core_nodes):
+                    break
+                if val >= 90: target = "load-max"
+                elif val >= 65: target = "load-high"
+                elif val >= 30: target = "load-med"
+                elif val >= 10:  target = "load-low"
+                elif val > 0: target = "load-standby"
+                else:          target = ""
+                if target == self._core_load_classes[i]:
+                    continue
+                ctx = self.core_nodes[i].get_style_context()
+                if self._core_load_classes[i]:
+                    ctx.remove_class(self._core_load_classes[i])
+                if target:
+                    ctx.add_class(target)
+                self._core_load_classes[i] = target
+
+            self.disk_bar.set_value(vitals['disk_pressure'])
+            return False
+
+        def telemetry_worker():
+            """Hardware sampling engine via gRPC stream."""
+            import grpc
+            import os, sys
+            hub_path = os.path.join(os.path.dirname(__file__), '../../services/hub')
+            if hub_path not in sys.path: sys.path.insert(0, hub_path)
+            import citadel_pb2
+            import citadel_pb2_grpc
+            
+            while True:
+                try:
+                    channel = grpc.insecure_channel('localhost:50051')
+                    stub = citadel_pb2_grpc.CitadelServiceStub(channel)
+                    req = citadel_pb2.TelemetryRequest(interval_ms=1000)
+                    for pulse in stub.StreamTelemetry(req):
+                        cpu_cores = list(pulse.cpu.core_usage)
+                        data = {
+                            "cpu_total": int(sum(cpu_cores)/len(cpu_cores)) if cpu_cores else 0,
+                            "mem_percent": int((pulse.ram.used_bytes / pulse.ram.total_bytes) * 100) if pulse.ram.total_bytes else 0,
+                            "ram_used": round(pulse.ram.used_bytes / (1024**3), 1),
+                            "ram_total": round(pulse.ram.total_bytes / (1024**3), 1),
+                            "gpu": {
+                                "temp": pulse.gpu.temperature,
+                                "power": pulse.gpu.power_draw_watts,
+                                "vram_used": pulse.gpu.vram_used_bytes,
+                                "vram_total": pulse.gpu.vram_total_bytes,
+                                "utilization": pulse.gpu.utilization_percent,
+                                "fan": pulse.gpu.fan_speed_percent,
+                            },
+                            "cores": cpu_cores,
+                            "disk_pressure": pulse.disk_pressure,
+                            "net_speed": round((pulse.net_speed_bytes_sec / 1024), 1),
+                            "top_process": pulse.top_process
+                        }
+                        GLib.idle_add(_apply_vitals_to_ui, data)
+                except Exception:
+                    def _set_offline():
+                        if getattr(self, "_hub_connected", True):
+                            self._hub_connected = False
+                            self.hub_status_label.set_text("🔴 HUB OFFLINE")
+                        return False
+                    GLib.idle_add(_set_offline)
+                time.sleep(2)
+
+        threading.Thread(target=telemetry_worker, daemon=True, name="CitadelVitals").start()
 
     # ── Logging ───────────────────────────────────────────────────────────
 

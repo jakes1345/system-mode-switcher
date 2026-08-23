@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entry point for System Mode Switcher."""
+"""Entry point for Obsidian Citadel."""
 
 import os
 import sys

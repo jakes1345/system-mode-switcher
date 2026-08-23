@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import threading
+
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk
+from gi.repository import GLib, Gtk
 
 from switcher.backend import (
     GPU_VENDOR,
@@ -15,7 +17,7 @@ from switcher.backend import (
     is_process_running,
     is_service_active,
 )
-from switcher.config import Config
+from switcher.config import Config, TweakConfig
 
 
 class ServiceRow(Gtk.Box):
@@ -101,16 +103,24 @@ class ServicePanel(Gtk.Box):
         inner.set_margin_end(12)
 
         # Services section
-        svc_label = Gtk.Label(label="SERVICES", xalign=0)
-        svc_label.get_style_context().add_class("section-label")
-        svc_label.set_margin_top(4)
-        svc_label.set_margin_bottom(4)
-        inner.pack_start(svc_label, False, False, 0)
-
+        categories = {}
         for svc in config.services:
-            row = ServiceRow(svc.name, svc.display, svc.description)
-            self.service_rows[svc.name] = row
-            inner.pack_start(row, False, False, 0)
+            cat = getattr(svc, "category", "System")
+            if cat not in categories:
+                categories[cat] = []
+            categories[cat].append(svc)
+
+        for cat in sorted(categories.keys()):
+            svc_label = Gtk.Label(label=f"{cat.upper()} SERVICES", xalign=0)
+            svc_label.get_style_context().add_class("section-label")
+            svc_label.set_margin_top(8)
+            svc_label.set_margin_bottom(4)
+            inner.pack_start(svc_label, False, False, 0)
+
+            for svc in categories[cat]:
+                row = ServiceRow(svc.name, svc.display, svc.description)
+                self.service_rows[svc.name] = row
+                inner.pack_start(row, False, False, 0)
 
         # Processes section
         if config.processes:
@@ -125,61 +135,82 @@ class ServicePanel(Gtk.Box):
                 self.process_rows[proc.id] = row
                 inner.pack_start(row, False, False, 0)
 
-        # Tweaks section
-        inner.pack_start(Gtk.Separator(), False, False, 8)
-        tweak_label = Gtk.Label(label="SYSTEM TWEAKS", xalign=0)
-        tweak_label.get_style_context().add_class("section-label")
-        tweak_label.set_margin_bottom(4)
-        inner.pack_start(tweak_label, False, False, 0)
+        # ── Hardware Cockpit ────────────────────────────────────────────────
+        inner.pack_start(Gtk.Separator(), False, False, 12)
+        hw_label = Gtk.Label(label="HARDWARE COCKPIT", xalign=0)
+        hw_label.get_style_context().add_class("section-label")
+        hw_label.set_margin_bottom(8)
+        inner.pack_start(hw_label, False, False, 0)
 
-        # Swappiness
-        swap_row = Gtk.Box(spacing=10)
-        swap_row.get_style_context().add_class("tweak-row")
-        swap_lbl = Gtk.Label(label="vm.swappiness", xalign=0)
-        swap_lbl.get_style_context().add_class("tweak-label")
-        swap_row.pack_start(swap_lbl, True, True, 0)
-        self.swappiness_scale = Gtk.Scale.new_with_range(
-            Gtk.Orientation.HORIZONTAL, 1, 100, 5
-        )
-        self.swappiness_scale.set_size_request(200, -1)
-        self.swappiness_scale.set_value(get_swappiness())
-        swap_row.pack_start(self.swappiness_scale, False, False, 0)
-        inner.pack_start(swap_row, False, False, 0)
+        # CPU Governor
+        self.gov_combo = self._add_tweak_combo(inner, "CPU Frequency Governor", [
+            ("performance", "High Performance"),
+            ("powersave", "Power Efficient")
+        ], "performance")
 
-        # Compositor unredirect
-        comp_row = Gtk.Box(spacing=10)
-        comp_row.get_style_context().add_class("tweak-row")
-        comp_lbl = Gtk.Label(
-            label="Unredirect fullscreen windows (less input lag)", xalign=0
-        )
-        comp_lbl.get_style_context().add_class("tweak-label")
-        comp_row.pack_start(comp_lbl, True, True, 0)
-        self.unredirect_switch = Gtk.Switch()
-        self.unredirect_switch.set_active(get_compositor_unredirect())
-        self.unredirect_switch.set_valign(Gtk.Align.CENTER)
-        comp_row.pack_start(self.unredirect_switch, False, False, 0)
-        inner.pack_start(comp_row, False, False, 0)
+        # GPU Power Limit (NVIDIA Only)
+        if GPU_VENDOR == "nvidia":
+            self.pl_scale = self._add_tweak_scale(inner, "NVIDIA Power Limit (W)", 125, 175, 175)
 
-        # GPU performance
-        gpu_labels = {
-            "nvidia": "NVIDIA Prefer Max Performance",
-            "amd": "AMD GPU Performance Mode (LACT)",
-        }
-        gpu_text = gpu_labels.get(GPU_VENDOR, "GPU Performance Mode (no supported GPU)")
-        gpu_row = Gtk.Box(spacing=10)
-        gpu_row.get_style_context().add_class("tweak-row")
-        gpu_lbl = Gtk.Label(label=gpu_text, xalign=0)
-        gpu_lbl.get_style_context().add_class("tweak-label")
-        gpu_row.pack_start(gpu_lbl, True, True, 0)
-        self.gpu_perf_switch = Gtk.Switch()
-        self.gpu_perf_switch.set_valign(Gtk.Align.CENTER)
-        if GPU_VENDOR == "unknown":
-            self.gpu_perf_switch.set_sensitive(False)
-        gpu_row.pack_start(self.gpu_perf_switch, False, False, 0)
-        inner.pack_start(gpu_row, False, False, 0)
+        # THP Mode
+        self.thp_combo = self._add_tweak_combo(inner, "Transparent Hugepages", [
+            ("always", "Always (AI Focus)"),
+            ("madvise", "Madvise (Balanced)"),
+            ("never", "Disabled")
+        ], "madvise")
+
+        # ── Legacy System Tweaks ───────────────────────────────────────────
+        inner.pack_start(Gtk.Separator(), False, False, 12)
+        sw_label = Gtk.Label(label="SYSTEM CORE TWEAKS", xalign=0)
+        sw_label.get_style_context().add_class("section-label")
+        sw_label.set_margin_bottom(8)
+        inner.pack_start(sw_label, False, False, 0)
+
+        # Probed values are set asynchronously after window draws (see refresh_switches).
+        # Initial values are safe defaults so UI renders instantly.
+        self.swappiness_scale = self._add_tweak_scale(inner, "Kernel Swappiness", 0, 100, 60)
+
+        self.unredirect_switch = self._add_tweak_switch(inner, "Unredirect Fullscreen (Low Latency)", False)
+
+        gpu_text = "NVIDIA Adaptive Perf" if GPU_VENDOR == "nvidia" else "AMD Performance Mode"
+        self.gpu_perf_switch = self._add_tweak_switch(inner, gpu_text, False)
+
+        inner.pack_start(Gtk.Separator(), False, False, 12)
 
         scroll.add(inner)
         self.pack_start(scroll, True, True, 0)
+
+    def _add_tweak_row(self, container, label_text):
+        row = Gtk.Box(spacing=10)
+        row.get_style_context().add_class("tweak-row")
+        lbl = Gtk.Label(label=label_text, xalign=0)
+        lbl.get_style_context().add_class("tweak-label")
+        row.pack_start(lbl, True, True, 0)
+        container.pack_start(row, False, False, 0)
+        return row
+
+    def _add_tweak_switch(self, container, label, active):
+        row = self._add_tweak_row(container, label)
+        sw = Gtk.Switch(active=active, valign=Gtk.Align.CENTER)
+        row.pack_start(sw, False, False, 0)
+        return sw
+
+    def _add_tweak_scale(self, container, label, low, high, value):
+        row = self._add_tweak_row(container, label)
+        sc = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, low, high, 5)
+        sc.set_size_request(150, -1)
+        sc.set_value(value)
+        row.pack_start(sc, False, False, 0)
+        return sc
+
+    def _add_tweak_combo(self, container, label, options, active_id):
+        row = self._add_tweak_row(container, label)
+        cb = Gtk.ComboBoxText()
+        for id_val, text in options:
+            cb.append(id_val, text)
+        cb.set_active_id(active_id)
+        row.pack_start(cb, False, False, 0)
+        return cb
 
     def refresh_status(self) -> None:
         """Update status dots from live system state. Does NOT touch switches."""
@@ -194,29 +225,51 @@ class ServicePanel(Gtk.Box):
                 row.set_status(is_process_running(proc.grep))
 
     def refresh_switches(self) -> None:
-        """Update switches AND status from live state. Used on initial load."""
-        for svc_name, row in self.service_rows.items():
-            active = is_service_active(svc_name)
-            row.switch.set_active(active)
-            row.set_status(active)
+        """Probe live system state in a background thread, then update UI on the main loop.
 
-        for proc_id, row in self.process_rows.items():
-            proc = next(
-                (p for p in self._config.processes if p.id == proc_id), None
-            )
-            if proc:
-                active = is_process_running(proc.grep)
+        Runs subprocess calls (systemctl, pgrep, gsettings, nvidia-settings) off the
+        main thread so the window paints instantly instead of blocking 1-3s on startup.
+        """
+        services = list(self.service_rows.keys())
+        processes = [
+            (p.id, p.grep)
+            for p in self._config.processes
+            if p.id in self.process_rows
+        ]
+
+        def _probe():
+            results = {
+                "services": {name: is_service_active(name) for name in services},
+                "processes": {pid: is_process_running(grep) for pid, grep in processes},
+                "swappiness": get_swappiness(),
+                "unredirect": get_compositor_unredirect(),
+                "gpu_perf": get_gpu_performance_mode(),
+            }
+            GLib.idle_add(self._apply_probe_results, results)
+
+        threading.Thread(target=_probe, daemon=True, name="ProbeWorker").start()
+
+    def _apply_probe_results(self, results: dict) -> bool:
+        for svc_name, active in results["services"].items():
+            row = self.service_rows.get(svc_name)
+            if row:
                 row.switch.set_active(active)
                 row.set_status(active)
 
-        self.swappiness_scale.set_value(get_swappiness())
-        self.unredirect_switch.set_active(get_compositor_unredirect())
-        gpu_mode = get_gpu_performance_mode()
-        if gpu_mode is not None:
-            self.gpu_perf_switch.set_active(gpu_mode)
+        for proc_id, active in results["processes"].items():
+            row = self.process_rows.get(proc_id)
+            if row:
+                row.switch.set_active(active)
+                row.set_status(active)
+
+        self.swappiness_scale.set_value(results["swappiness"])
+        self.unredirect_switch.set_active(results["unredirect"])
+        if results["gpu_perf"] is not None:
+            self.gpu_perf_switch.set_active(results["gpu_perf"])
+        return False
 
     def apply_profile(self, services: dict[str, bool], processes: dict[str, bool],
-                      tweaks) -> None:
+                      tweaks: TweakConfig) -> None:
         """Set switches to match a profile. Does NOT apply to system."""
         for svc_name, desired in services.items():
             if svc_name in self.service_rows:
@@ -229,6 +282,12 @@ class ServicePanel(Gtk.Box):
         self.swappiness_scale.set_value(tweaks.swappiness)
         self.unredirect_switch.set_active(tweaks.compositor_unredirect)
         self.gpu_perf_switch.set_active(tweaks.gpu_performance)
+        self.gov_combo.set_active_id(tweaks.cpu_governor)
+        
+        if hasattr(self, "pl_scale") and tweaks.gpu_power_limit:
+            self.pl_scale.set_value(tweaks.gpu_power_limit)
+        
+        self.thp_combo.set_active_id(tweaks.thp_mode)
 
     def collect_desired_state(self) -> dict:
         """Snapshot all switch states for thread-safe apply."""
@@ -244,6 +303,9 @@ class ServicePanel(Gtk.Box):
             "swappiness": int(self.swappiness_scale.get_value()),
             "unredirect": self.unredirect_switch.get_active(),
             "gpu_perf": self.gpu_perf_switch.get_active(),
+            "cpu_gov": self.gov_combo.get_active_id(),
+            "gpu_pl": int(self.pl_scale.get_value()) if hasattr(self, "pl_scale") else None,
+            "thp": self.thp_combo.get_active_id(),
         }
 
     def _on_search(self, entry: Gtk.SearchEntry) -> None:

@@ -28,13 +28,18 @@ from switcher.ui.window import SwitcherWindow
 class SwitcherApp(Gtk.Application):
     def __init__(self):
         super().__init__(
-            application_id="com.jack.system-mode-switcher",
+            application_id="com.obsidian.citadel",
             flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
         self._window: SwitcherWindow | None = None
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
+
+        # Force dark theme base
+        settings = Gtk.Settings.get_default()
+        if settings:
+            settings.set_property("gtk-application-prefer-dark-theme", True)
 
         # Load CSS
         provider = Gtk.CssProvider()
@@ -67,7 +72,7 @@ class SwitcherApp(Gtk.Application):
             return
 
         indicator = AppIndicator3.Indicator.new(
-            "system-mode-switcher",
+            "obsidian-citadel",
             "preferences-system",
             AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
         )
