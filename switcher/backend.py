@@ -48,7 +48,7 @@ def get_primary_interface() -> str:
         for d in dirs:
             if d.startswith(("wl", "en", "eth", "wlan")):
                 # Filter out virtual/loopback
-                if not Path(f"/sys/class/net/{d}/virtual").exists():
+                if Path(f"/sys/class/net/{d}/device").exists():
                     return d
     return "wlan0"
 
@@ -143,7 +143,27 @@ def get_gpu_vitals() -> dict:
                     vitals["load"] = int(busy_file.read_text())
         except (OSError, IndexError, AttributeError, ValueError):
             pass
-        
+
+    elif GPU_VENDOR == "intel":
+        try:
+            freq_file = Path("/sys/class/drm/card0/gt_cur_freq_mhz")
+            max_freq_file = Path("/sys/class/drm/card0/gt_max_freq_mhz")
+            if freq_file.exists() and max_freq_file.exists():
+                cur = int(freq_file.read_text().strip())
+                mx = int(max_freq_file.read_text().strip())
+                vitals["load"] = int((cur / mx) * 100) if mx > 0 else 0
+            
+            # Temp probing
+            for hwmon in Path("/sys/class/hwmon").glob("hwmon*"):
+                name_file = hwmon / "name"
+                if name_file.exists() and ("coretemp" in name_file.read_text() or "intel" in name_file.read_text()):
+                    t_file = hwmon / "temp1_input"
+                    if t_file.exists():
+                        vitals["temp"] = int(t_file.read_text()) // 1000
+                        break
+        except (OSError, ValueError):
+            pass
+
     return vitals
 
 
@@ -305,8 +325,9 @@ def get_hardware_report() -> str:
         thp_path = Path("/sys/kernel/mm/transparent_hugepage/enabled")
         if thp_path.exists():
             thp = thp_path.read_text()
-            item = [m.strip("[]") for m in thp.split() if "[" in m][0]
-            report.append(f"[CONFIRM] KERNEL_THP: {item.upper()}")
+            matches = [m.strip("[]") for m in thp.split() if "[" in m]
+            if matches:
+                report.append(f"[CONFIRM] KERNEL_THP: {matches[0].upper()}")
 
         # 3. GPU
         if GPU_VENDOR == "nvidia":
@@ -314,7 +335,7 @@ def get_hardware_report() -> str:
             if r.returncode == 0:
                 report.append(f"[CONFIRM] GPU_POWER_LIMIT: {r.stdout.strip()}")
                 
-    except (OSError, subprocess.SubprocessError) as e:
+    except (OSError, subprocess.SubprocessError, IndexError, ValueError) as e:
         report.append(f"[AUDIT_ERROR] {e}")
     
     return "\n".join(report)
@@ -415,6 +436,10 @@ def build_apply_script(
         
     for proc_id, start_cmd in processes_to_start:
         lines.append(f"echo 0 > /sys/fs/cgroup/citadel_cryo_{proc_id}/cgroup.freeze 2>/dev/null || true")
+        if start_cmd:
+            lines.append(f"if ! pgrep -f '{proc_id}' >/dev/null 2>&1; then")
+            lines.append(f"    nohup {start_cmd} >/dev/null 2>&1 &")
+            lines.append(f"fi")
 
     lines.append('echo "RECONCILE_SUCCESS"')
     return "\n".join(lines)
@@ -526,9 +551,6 @@ def restore_mac(interface: str, original_mac: str) -> str:
 
 def set_audio_latency(gaming: bool) -> str:
     """Build bash for Pipewire/Pulse low latency tweaks."""
-    if gaming:
-        # Increase scheduling priority for pipewire
-        return "echo -19 > /proc/$(pgrep pipewire | head -n 1)/nice 2>/dev/null || true"
-    else:
-        return "echo 0 > /proc/$(pgrep pipewire | head -n 1)/nice 2>/dev/null || true"
+    val = -19 if gaming else 0
+    return f"pid=$(pgrep pipewire | head -n 1 2>/dev/null); [ -n \"$pid\" ] && echo {val} > /proc/$pid/nice 2>/dev/null || true"
 

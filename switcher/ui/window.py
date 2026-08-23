@@ -68,12 +68,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         GLib.timeout_add_seconds(30, self._auto_refresh)
 
     def _async_initial_refresh(self) -> None:
-        self.panel.refresh_switches()
-        GLib.timeout_add(800, self._detect_after_probe)
-
-    def _detect_after_probe(self) -> bool:
-        self._detect_active_profile()
-        return False
+        self.panel.refresh_switches(on_done=self._detect_active_profile)
 
     # ── HeaderBar ─────────────────────────────────────────────────────────
 
@@ -413,8 +408,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         self._progress.set_fraction(1.0 if ok else 0.0)
         GLib.timeout_add(2000, lambda: (self._progress.hide(), False)[-1])
 
-        self.panel.refresh_switches()
-        self._detect_active_profile()
+        self.panel.refresh_switches(on_done=self._detect_active_profile)
 
         msg = f"Done! Profile applied." if ok else "Failed to apply profile."
         self._log(msg)
@@ -428,14 +422,13 @@ class SwitcherWindow(Gtk.ApplicationWindow):
     # ── Auto-Refresh ──────────────────────────────────────────────────────
 
     def _auto_refresh(self) -> bool:
-        """Called every 30s. Updates status dots only."""
+        """Called every 30s. Updates status dots only in background thread."""
         self.panel.refresh_status()
         return True  # keep timer alive
 
     def _full_refresh(self) -> None:
         """Manual refresh — updates switches and profile detection."""
-        self.panel.refresh_switches()
-        GLib.timeout_add(800, self._detect_after_probe)
+        self.panel.refresh_switches(on_done=self._detect_active_profile)
         self._log("Status refreshed.")
 
     def _start_telemetry_heartbeat(self) -> None:
@@ -510,6 +503,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             import citadel_pb2_grpc
             
             while True:
+                channel = None
                 try:
                     channel = grpc.insecure_channel('localhost:50051')
                     stub = citadel_pb2_grpc.CitadelServiceStub(channel)
@@ -542,6 +536,12 @@ class SwitcherWindow(Gtk.ApplicationWindow):
                             self.hub_status_label.set_text("🔴 HUB OFFLINE")
                         return False
                     GLib.idle_add(_set_offline)
+                finally:
+                    if channel:
+                        try:
+                            channel.close()
+                        except Exception:
+                            pass
                 time.sleep(2)
 
         threading.Thread(target=telemetry_worker, daemon=True, name="CitadelVitals").start()

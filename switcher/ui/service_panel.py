@@ -213,18 +213,30 @@ class ServicePanel(Gtk.Box):
         return cb
 
     def refresh_status(self) -> None:
-        """Update status dots from live system state. Does NOT touch switches."""
-        for svc_name, row in self.service_rows.items():
-            row.set_status(is_service_active(svc_name))
+        """Update status dots from live system state in background thread."""
+        services = list(self.service_rows.keys())
+        processes = [
+            (p.id, p.grep)
+            for p in self._config.processes
+            if p.id in self.process_rows
+        ]
 
-        for proc_id, row in self.process_rows.items():
-            proc = next(
-                (p for p in self._config.processes if p.id == proc_id), None
-            )
-            if proc:
-                row.set_status(is_process_running(proc.grep))
+        def _worker():
+            svc_status = {name: is_service_active(name) for name in services}
+            proc_status = {pid: is_process_running(grep) for pid, grep in processes}
+            def _apply():
+                for name, active in svc_status.items():
+                    if name in self.service_rows:
+                        self.service_rows[name].set_status(active)
+                for pid, active in proc_status.items():
+                    if pid in self.process_rows:
+                        self.process_rows[pid].set_status(active)
+                return False
+            GLib.idle_add(_apply)
 
-    def refresh_switches(self) -> None:
+        threading.Thread(target=_worker, daemon=True, name="StatusRefreshWorker").start()
+
+    def refresh_switches(self, on_done=None) -> None:
         """Probe live system state in a background thread, then update UI on the main loop.
 
         Runs subprocess calls (systemctl, pgrep, gsettings, nvidia-settings) off the
@@ -245,11 +257,11 @@ class ServicePanel(Gtk.Box):
                 "unredirect": get_compositor_unredirect(),
                 "gpu_perf": get_gpu_performance_mode(),
             }
-            GLib.idle_add(self._apply_probe_results, results)
+            GLib.idle_add(self._apply_probe_results, results, on_done)
 
         threading.Thread(target=_probe, daemon=True, name="ProbeWorker").start()
 
-    def _apply_probe_results(self, results: dict) -> bool:
+    def _apply_probe_results(self, results: dict, on_done=None) -> bool:
         for svc_name, active in results["services"].items():
             row = self.service_rows.get(svc_name)
             if row:
@@ -266,6 +278,8 @@ class ServicePanel(Gtk.Box):
         self.unredirect_switch.set_active(results["unredirect"])
         if results["gpu_perf"] is not None:
             self.gpu_perf_switch.set_active(results["gpu_perf"])
+        if callable(on_done):
+            on_done()
         return False
 
     def apply_profile(self, services: dict[str, bool], processes: dict[str, bool],

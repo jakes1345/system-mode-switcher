@@ -21,10 +21,12 @@ echo "🖼️ Injecting Citadel Branding..."
 sudo mkdir -p /usr/share/icons/hicolor/256x256/apps/
 
 ICON_PATH=""
-if [ -f "$PROJECT_ROOT/switcher/assets/citadel_icon.png" ]; then
-    ICON_PATH="$PROJECT_ROOT/switcher/assets/citadel_icon.png"
-elif [ -f "$PROJECT_ROOT/switcher/assets/citadel-apex.png" ]; then
+if [ -s "$PROJECT_ROOT/assets/icon.png" ]; then
+    ICON_PATH="$PROJECT_ROOT/assets/icon.png"
+elif [ -s "$PROJECT_ROOT/switcher/assets/citadel-apex.png" ]; then
     ICON_PATH="$PROJECT_ROOT/switcher/assets/citadel-apex.png"
+elif [ -s "$PROJECT_ROOT/switcher/assets/citadel_icon.png" ]; then
+    ICON_PATH="$PROJECT_ROOT/switcher/assets/citadel_icon.png"
 fi
 
 if [ -n "$ICON_PATH" ]; then

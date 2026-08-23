@@ -6,10 +6,13 @@ Version: 3.0.0-APEX
 
 import sys
 import os
+
+pkg_dir = os.path.dirname(os.path.abspath(__file__))
+if pkg_dir not in sys.path:
+    sys.path.insert(0, pkg_dir)
+
 from switcher.ui.app import SwitcherApp
 
 if __name__ == "__main__":
-    # Ensure project root is in path
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     app = SwitcherApp()
     app.run(sys.argv)

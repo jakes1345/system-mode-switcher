@@ -130,7 +130,7 @@ class TestApplyScriptGeneration(unittest.TestCase):
             services_to_start=[],
             services_to_stop=[],
             services_to_freeze=[],
-            processes_to_start=[],
+            processes_to_start=[("test_proc", "python3 test.py")],
             processes_to_kill=[],
             processes_to_freeze=[],
             swappiness=10,
@@ -142,6 +142,18 @@ class TestApplyScriptGeneration(unittest.TestCase):
         )
         self.assertIn("vm.swappiness=10", script)
         self.assertIn("transparent_hugepage", script)
+        self.assertIn("nohup python3 test.py", script)
+
+
+class TestVectorTelemetry(unittest.TestCase):
+
+    def test_vector_read_vitals_safe_when_missing_shm(self):
+        from pkg.telemetry.vector import CitadelVector
+        cv = CitadelVector(provider=False)
+        data = cv.read_vitals()
+        self.assertEqual(data["elapsed"], 0.0)
+        self.assertEqual(data["cores"], 0)
+
 
 if __name__ == '__main__':
     unittest.main()

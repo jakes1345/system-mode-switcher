@@ -28,7 +28,7 @@ def generate_bash_for_task(task: str) -> list[str]:
         "hardware_switch_stealth": ["lines.append('rfkill block bluetooth 2>/dev/null || true')"],
         "flatpak_orchestrator": ["lines.append('flatpak update -y 2>/dev/null || true')"],
         "apparmor_generator": ["lines.append('aa-enforce /etc/apparmor.d/* 2>/dev/null || true')"],
-        "docker_socket_pause": ["lines.append('systemctl pause docker 2>/dev/null || true')"],
+        "docker_socket_pause": ["lines.append('systemctl stop docker.socket docker.service 2>/dev/null || true')"],
         "wayland_clipboard_clear": ["lines.append('wl-copy -c 2>/dev/null || true')"],
         "notification_daemon": ["lines.append('systemctl restart dunst 2>/dev/null || true')"],
         "local_package_cache": ["lines.append('apt-get clean 2>/dev/null || true')"],

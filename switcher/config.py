@@ -294,7 +294,7 @@ def save_config(config: Config) -> None:
         lines.append("")
 
     for name, prof in config.profiles.items():
-        qname = f'"{name}"' if " " in name or "+" in name else name
+        qname = f'"{name}"'
         lines.append(f"[profile.{qname}]")
         lines.append(f'description = "{prof.description}"')
         lines.append(f'color = "{prof.color}"')
@@ -309,7 +309,7 @@ def save_config(config: Config) -> None:
 
         lines.append(f"[profile.{qname}.processes]")
         for proc_id, val in prof.processes.items():
-            lines.append(f'{proc_id} = {"true" if val else "false"}')
+            lines.append(f'"{proc_id}" = {"true" if val else "false"}')
         lines.append("")
 
         lines.append(f"[profile.{qname}.tweaks]")

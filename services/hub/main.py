@@ -51,29 +51,31 @@ class CitadelHubService(citadel_pb2_grpc.CitadelServiceServicer):
         
     async def GetCurrentState(self, request, context):
         from switcher.backend import is_service_active
-        from switcher.backend import get_swappiness
         import psutil
         
         active_svcs = {}
-        if self.controller.reconciler.active_profile_name in self.controller.config.profiles:
-            prof = self.controller.config.profiles[self.controller.reconciler.active_profile_name]
+        profile_name = self.controller.reconciler.active_profile_name or ""
+        if profile_name in self.controller.config.profiles:
+            prof = self.controller.config.profiles[profile_name]
             for svc in prof.services:
-                active_svcs[svc] = is_service_active(svc)
+                active_svcs[svc] = await asyncio.to_thread(is_service_active, svc)
                 
         return citadel_pb2.SystemState(
-            active_profile=self.controller.reconciler.active_profile_name,
+            active_profile=profile_name,
             active_services=active_svcs,
-            uptime_seconds=time.time() - psutil.boot_time()
+            uptime_seconds=float(time.time() - psutil.boot_time())
         )
 
     async def StreamTelemetry(self, request, context):
         """Pulse streaming logic — high performance generator."""
         import psutil
+        from switcher.backend import get_gpu_vitals
         last_net = psutil.net_io_counters(pernic=True)
         last_time = time.time()
         
         while True:
-            vitals = get_system_vitals_snapshot()
+            vitals = await asyncio.to_thread(get_system_vitals_snapshot)
+            gpu = await asyncio.to_thread(get_gpu_vitals)
             
             ts = timestamp_pb2.Timestamp()
             curr_time = time.time()
@@ -81,8 +83,6 @@ class CitadelHubService(citadel_pb2_grpc.CitadelServiceServicer):
             
             cpu_heatmap = citadel_pb2.CPUHeatmap(core_usage=vitals.get("cores", []))
             
-            from switcher.backend import get_gpu_vitals
-            gpu = get_gpu_vitals()
             gpu_vitals = citadel_pb2.GPUVitals(
                 temperature=float(gpu.get("temp", 0)),
                 power_draw_watts=float(gpu.get("power", 0)),
@@ -119,7 +119,7 @@ class CitadelHubService(citadel_pb2_grpc.CitadelServiceServicer):
                 cpu=cpu_heatmap,
                 gpu=gpu_vitals,
                 ram=ram_vitals,
-                disk_pressure=vitals.get("disk_pressure", 0.0),
+                disk_pressure=float(vitals.get("disk_pressure", 0.0)),
                 net_speed_bytes_sec=float(net_speed_bytes),
                 top_process=vitals.get("top_process", "")
             )

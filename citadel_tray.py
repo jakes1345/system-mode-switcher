@@ -86,28 +86,31 @@ class CitadelTrayApp:
         threading.Thread(target=self.set_profile_async, args=(profile_name,), daemon=True).start()
         
     def on_dashboard_click(self, widget):
-        # Launch main UI in background
-        os.system("python3 main.py &")
+        # Launch main UI in background using absolute path
+        main_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "main.py"))
+        os.system(f"'{sys.executable}' '{main_script}' &")
 
     def update_status(self):
-        try:
-            req = citadel_pb2.StateRequest()
-            resp = self.stub.GetCurrentState(req)
-            new_profile = resp.active_profile
-            
-            if new_profile != self.active_profile:
-                self.active_profile = new_profile
+        def _worker():
+            try:
+                req = citadel_pb2.StateRequest()
+                resp = self.stub.GetCurrentState(req)
+                new_profile = resp.active_profile
                 
-                # Update UI elements
-                for name, item in self.menu_items.items():
-                    if name == self.active_profile:
-                        item.set_label(f"✓ Active: {name}")
-                    else:
-                        item.set_label(f"Switch to {name}")
-                        
-        except Exception:
-            pass
-            
+                if new_profile != self.active_profile:
+                    def _update_ui(profile):
+                        self.active_profile = profile
+                        for name, item in self.menu_items.items():
+                            if name == self.active_profile:
+                                item.set_label(f"✓ Active: {name}")
+                            else:
+                                item.set_label(f"Switch to {name}")
+                        return False
+                    GLib.idle_add(_update_ui, new_profile)
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True, name="TrayStatusWorker").start()
         return True # Keep polling
 
 if __name__ == "__main__":

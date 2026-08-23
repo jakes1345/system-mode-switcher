@@ -23,7 +23,12 @@ echo "[1/4] Installing application to $APP_DIR..."
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR"
 cp -r "$SCRIPT_DIR/switcher" "$APP_DIR/"
+cp -r "$SCRIPT_DIR/services" "$APP_DIR/" 2>/dev/null || true
+cp -r "$SCRIPT_DIR/pkg" "$APP_DIR/" 2>/dev/null || true
+cp -r "$SCRIPT_DIR/internal" "$APP_DIR/" 2>/dev/null || true
 cp "$SCRIPT_DIR/main.py" "$APP_DIR/"
+cp "$SCRIPT_DIR/citadel_cli.py" "$APP_DIR/" 2>/dev/null || true
+cp "$SCRIPT_DIR/citadel_tray.py" "$APP_DIR/" 2>/dev/null || true
 
 # Copy desktop file
 echo "[2/4] Installing desktop entry..."
@@ -36,11 +41,13 @@ echo "[3/4] Installing icons..."
 mkdir -p "$APP_DIR/switcher/assets"
 ICON_SOURCE=""
 
-# Priority 1: Project assets directory
-if [ -f "$SCRIPT_DIR/switcher/assets/citadel_icon.png" ]; then
-    ICON_SOURCE="$SCRIPT_DIR/switcher/assets/citadel_icon.png"
-elif [ -f "$SCRIPT_DIR/switcher/assets/citadel-apex.png" ]; then
+# Priority 1: Project root assets directory
+if [ -s "$SCRIPT_DIR/assets/icon.png" ]; then
+    ICON_SOURCE="$SCRIPT_DIR/assets/icon.png"
+elif [ -s "$SCRIPT_DIR/switcher/assets/citadel-apex.png" ]; then
     ICON_SOURCE="$SCRIPT_DIR/switcher/assets/citadel-apex.png"
+elif [ -s "$SCRIPT_DIR/switcher/assets/citadel_icon.png" ]; then
+    ICON_SOURCE="$SCRIPT_DIR/switcher/assets/citadel_icon.png"
 fi
 
 if [ -n "$ICON_SOURCE" ]; then
