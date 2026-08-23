@@ -17,7 +17,10 @@ class CitadelLogger:
 
     def __init__(self, log_dir: Optional[Path] = None):
         if log_dir is None:
-            log_dir = Path(__file__).resolve().parent.parent.parent / "logs"
+            if os.geteuid() == 0:
+                log_dir = Path("/var/log/citadel")
+            else:
+                log_dir = Path.home() / ".local" / "share" / "citadel" / "logs"
         self.log_dir = log_dir
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -33,10 +36,15 @@ class CitadelLogger:
         self._logger = logging.getLogger("ObsidianCitadel")
         self._logger.setLevel(logging.INFO)
         
-        handler = RotatingFileHandler(self.log_file, maxBytes=5*1024*1024, backupCount=3)
         formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s')
-        handler.setFormatter(formatter)
-        self._logger.addHandler(handler)
+        try:
+            handler = RotatingFileHandler(self.log_file, maxBytes=5*1024*1024, backupCount=3)
+            handler.setFormatter(formatter)
+            self._logger.addHandler(handler)
+        except (PermissionError, OSError):
+            handler = logging.StreamHandler()
+            handler.setFormatter(formatter)
+            self._logger.addHandler(handler)
         
         # 2. Add stderr for debugging/containers (only if CITADEL_DEBUG is set)
         if os.environ.get("CITADEL_DEBUG", "").lower() in ("1", "true", "yes"):
