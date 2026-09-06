@@ -51,8 +51,11 @@ class Phase5RedteamNetwork:
         lines.append('echo "Citadel: Activating Ebpf Packet Sniffer..."')
 
     def ssh_tarpit(self, lines: list):
-        # Applied ssh_tarpit
-        lines.append('iptables -A INPUT -p tcp --dport 22 -j REJECT --reject-with tcp-reset 2>/dev/null || true')
+        if getattr(self.config, 'stealth_mode', False):
+            lines.append('iptables -A INPUT -p tcp --dport 22 -j REJECT --reject-with tcp-reset 2>/dev/null || true')
+        else:
+            # Remove the rule when leaving stealth mode
+            lines.append('iptables -D INPUT -p tcp --dport 22 -j REJECT --reject-with tcp-reset 2>/dev/null || true')
 
     def fail2ban_telemetry(self, lines: list):
         # Applied fail2ban_telemetry
@@ -75,8 +78,10 @@ class Phase5RedteamNetwork:
         lines.append('echo "Citadel: Activating Doh Proxy..."')
 
     def hardware_switch_stealth(self, lines: list):
-        # Applied hardware_switch_stealth
-        lines.append('rfkill block bluetooth 2>/dev/null || true')
+        if getattr(self.config, 'stealth_mode', False):
+            lines.append('rfkill block bluetooth 2>/dev/null || true')
+        else:
+            lines.append('rfkill unblock bluetooth 2>/dev/null || true')
 
     def honeypot_trap(self, lines: list):
         # Applied honeypot_trap

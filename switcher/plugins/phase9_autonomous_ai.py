@@ -32,6 +32,7 @@ class Phase9AutonomousAi:
         lines.append('echo "Citadel: Activating Thermal Prediction..."')
 
     def smart_battery_optimizer(self, lines: list):
-        # Applied smart_battery_optimizer
-        lines.append('systemctl start tlp 2>/dev/null || true')
+        # TLP conflicts with gaming/performance modes — only enable in balanced modes
+        if not getattr(self.config, 'gpu_performance', False):
+            lines.append('systemctl start tlp 2>/dev/null || true')
 

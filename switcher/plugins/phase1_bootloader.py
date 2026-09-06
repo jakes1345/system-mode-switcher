@@ -21,12 +21,10 @@ class Phase1Bootloader:
         self.systemd_parallelization(lines)
 
     def rewrite_initramfs(self, lines: list):
-        # Applied rewrite_initramfs
-        lines.append('update-initramfs -u 2>/dev/null || true')
+        pass  # boot-time op — not appropriate on every mode switch
 
     def grub_integration(self, lines: list):
-        # Applied grub_integration
-        lines.append('grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true')
+        pass  # boot-time op — not appropriate on every mode switch
 
     def early_boot_splash(self, lines: list):
         # Applied early_boot_splash

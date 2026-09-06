@@ -31,8 +31,7 @@ class Phase6HyperOrchestration:
             lines.append('done')
 
     def flatpak_orchestrator(self, lines: list):
-        # Applied flatpak_orchestrator
-        lines.append('flatpak update -y 2>/dev/null || true')
+        pass  # flatpak updates are slow — not appropriate on every mode switch
 
     def apparmor_generator(self, lines: list):
         # Applied apparmor_generator
