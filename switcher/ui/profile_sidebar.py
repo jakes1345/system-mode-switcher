@@ -44,15 +44,33 @@ class ProfileCard(Gtk.EventBox):
             self._base_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
+        # Icon + Name row
+        name_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        icon_lbl = Gtk.Label(label=profile.icon)
+        icon_lbl.get_style_context().add_class("profile-card-icon")
+        name_row.pack_start(icon_lbl, False, False, 0)
+
         name_lbl = Gtk.Label(label=profile.name, xalign=0)
         name_lbl.get_style_context().add_class("profile-card-name")
-        self._frame.pack_start(name_lbl, False, False, 0)
+        name_row.pack_start(name_lbl, True, True, 0)
+        self._frame.pack_start(name_row, False, False, 0)
 
         if profile.description:
             desc_lbl = Gtk.Label(label=profile.description, xalign=0, wrap=True)
             desc_lbl.set_max_width_chars(22)
             desc_lbl.get_style_context().add_class("profile-card-desc")
             self._frame.pack_start(desc_lbl, False, False, 0)
+
+        # Stats: service/process counts
+        svc_on = sum(1 for v in profile.services.values() if v)
+        svc_total = len(profile.services)
+        proc_on = sum(1 for v in profile.processes.values() if v)
+        stats_parts = [f"{svc_on}/{svc_total} services"]
+        if proc_on > 0:
+            stats_parts.append(f"{proc_on} processes")
+        stats_lbl = Gtk.Label(label=" · ".join(stats_parts), xalign=0)
+        stats_lbl.get_style_context().add_class("profile-card-stats")
+        self._frame.pack_start(stats_lbl, False, False, 0)
 
         self.add(self._frame)
 

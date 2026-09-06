@@ -1,15 +1,9 @@
-[Unit]
-Description=Obsidian Citadel Kernel Orchestrator
-After=network.target multi-user.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/bin/python3 -m services.hub.main
-WorkingDirectory=/home/jack/system-mode-switcher
-Environment="PYTHONPATH=/home/jack/.local/lib/python3.12/site-packages:/home/jack/system-mode-switcher"
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
+# ⚠️ DEPRECATED — This file is superseded by internal/systemd/citadel-hub.service
+# Do NOT install this alongside citadel-hub.service — two services fighting
+# over port 50051 causes profile switches to fail nondeterministically.
+#
+# To remove if already installed:
+#   sudo systemctl stop obsidian-citadel.service
+#   sudo systemctl disable obsidian-citadel.service
+#   sudo rm /etc/systemd/system/obsidian-citadel.service
+#   sudo systemctl daemon-reload

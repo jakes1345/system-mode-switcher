@@ -17,10 +17,10 @@ class CitadelLogger:
 
     def __init__(self, log_dir: Optional[Path] = None):
         if log_dir is None:
-            if os.geteuid() == 0:
-                log_dir = Path("/var/log/citadel")
-            else:
-                log_dir = Path.home() / ".local" / "share" / "citadel" / "logs"
+            # Always log to the project directory for consistency —
+            # /var/log/citadel doesn't exist and the root service can't
+            # create it under ProtectSystem restrictions.
+            log_dir = Path(__file__).resolve().parent.parent.parent / "logs"
         self.log_dir = log_dir
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True)

@@ -46,6 +46,8 @@ class ProfileConfig:
     name: str
     description: str = ""
     color: str = "#4fc3f7"
+    icon: str = "⚙️"  # emoji identity for this mode
+    activation_message: str = ""  # detailed notification on apply
     builtin: bool = False
     services: dict[str, bool] = field(default_factory=dict)
     processes: dict[str, bool] = field(default_factory=dict)
@@ -115,7 +117,19 @@ DEFAULT_PROFILES: dict[str, ProfileConfig] = {
     "Gaming": ProfileConfig(
         name="Gaming",
         description="Maximum FPS. Kills everything non-essential.",
-        color="#e74c3c", builtin=True,
+        color="#e74c3c", icon="🎮", builtin=True,
+        activation_message=(
+            "GAMING MODE ACTIVE\n\n"
+            "• CPU Governor → PERFORMANCE (all 12 threads locked to max freq)\n"
+            "• CPU Cores 4-5 shielded (threads 4,5,10,11 reserved for game)\n"
+            "• THP → DISABLED (no compaction latency spikes)\n"
+            "• NVMe Scheduler → none (zero overhead)\n"
+            "• Pipewire → low-latency priority boosted\n"
+            "• PCIe ASPM → disabled (no link-state switching lag)\n"
+            "• USB power suspend → disabled (no input lag)\n"
+            "• Swappiness → 10 (minimal swap pressure)\n"
+            "• All non-essential services killed"
+        ),
         services={**_ALL_OFF, **_KEEP_ON},
         processes={"qdrant": False},
         tweaks=TweakConfig(
@@ -123,33 +137,65 @@ DEFAULT_PROFILES: dict[str, ProfileConfig] = {
             compositor_unredirect=True,
             gpu_performance=True,
             cpu_governor="performance",
-            thp_mode="never",       # THP compaction causes latency spikes in games
-            dirty_ratio=5,          # Flush dirty pages fast = lower I/O stutter
+            thp_mode="never",
+            dirty_ratio=5,
             dirty_background_ratio=2,
-            gaming_audio=True,      # Boost Pipewire priority
-            cpu_shielding=True,     # Reserve 2 physical cores for game
+            gaming_audio=True,
+            cpu_shielding=True,
         ),
     ),
     "Programming": ProfileConfig(
         name="Programming",
-        description="Dev tools on, AI services off.",
-        color="#2ecc71", builtin=True,
+        description="Full dev stack. Docker, DBs, Samba. AI off.",
+        color="#2ecc71", icon="💻", builtin=True,
+        activation_message=(
+            "DEV MODE ACTIVE\n\n"
+            "• Docker + Containerd → ON\n"
+            "• PostgreSQL 16 + MySQL → ON\n"
+            "• PHP-FPM + Samba → ON\n"
+            "• ShadowCypher → ON\n"
+            "• Ollama / Qdrant → OFF (saving RAM for builds)\n"
+            "• CPU Governor → schedutil (balanced)\n"
+            "• Swappiness → 30"
+        ),
         services=dict(_SVC_PROGRAMMING),
         processes={"qdrant": False},
         tweaks=TweakConfig(swappiness=30),
     ),
     "AI + Dev": ProfileConfig(
         name="AI + Dev",
-        description="Everything for AI work + development.",
-        color="#9b59b6", builtin=True,
+        description="LLM + Vector DB + full dev stack online.",
+        color="#9b59b6", icon="🧠", builtin=True,
+        activation_message=(
+            "AI + DEV MODE ACTIVE\n\n"
+            "• Ollama LLM Runner → ON\n"
+            "• Qdrant Vector Database → ON\n"
+            "• Docker + PostgreSQL + MySQL → ON\n"
+            "• Full dev stack running\n"
+            "• THP → madvise (optimized for large model allocations)\n"
+            "• CPU Governor → schedutil (balanced)\n"
+            "• Swappiness → 30"
+        ),
         services={**_SVC_PROGRAMMING, "ollama.service": True},
         processes={"qdrant": True},
         tweaks=TweakConfig(swappiness=30),
     ),
     "Red Team": ProfileConfig(
         name="Red Team",
-        description="Offensive security lab. Tor + Docker + IDS.",
-        color="#ff1744", builtin=True,
+        description="Offensive security lab. Stealth + IDS + Tor.",
+        color="#ff1744", icon="🔴", builtin=True,
+        activation_message=(
+            "RED TEAM MODE ACTIVE\n\n"
+            "• Tor Anonymizing Network → ON\n"
+            "• Fail2Ban Intrusion Prevention → ARMED\n"
+            "• Snort Network IDS/IPS → ARMED\n"
+            "• Shadow Sentinel + ShadowHub → DEPLOYED\n"
+            "• MAC Address → RANDOMIZED\n"
+            "• Bluetooth → KILLED\n"
+            "• Docker + Databases → ON (lab infra)\n"
+            "• Stealth Mode → ENABLED\n"
+            "• RAM Wipe on Exit → ARMED"
+        ),
         services={
             "fail2ban.service": True, "snort.service": True, "openvpn.service": False,
             "mysql.service": True, "postgresql@16-main.service": True,
@@ -166,8 +212,18 @@ DEFAULT_PROFILES: dict[str, ProfileConfig] = {
     ),
     "Game Dev": ProfileConfig(
         name="Game Dev",
-        description="Godot + dev tools, lighter background load.",
-        color="#e67e22", builtin=True,
+        description="Godot engine + MySQL + Samba. Lean background.",
+        color="#e67e22", icon="🎨", builtin=True,
+        activation_message=(
+            "GAME DEV MODE ACTIVE\n\n"
+            "• Godot Headless Server → ON\n"
+            "• MySQL → ON (game data)\n"
+            "• Samba File Sharing → ON\n"
+            "• Docker / Containers → OFF (save resources)\n"
+            "• PostgreSQL → OFF\n"
+            "• CPU Governor → schedutil (balanced)\n"
+            "• Swappiness → 30"
+        ),
         services={
             "mysql.service": True, "postgresql@16-main.service": False,
             "docker.service": False, "containerd.service": False,
@@ -246,6 +302,8 @@ def load_config(path: Path | None = None) -> Config:
                 name=name,
                 description=pdata.get("description", ""),
                 color=pdata.get("color", "#4fc3f7"),
+                icon=pdata.get("icon", "⚙️"),
+                activation_message=pdata.get("activation_message", ""),
                 builtin=pdata.get("builtin", False),
                 services={k: bool(v) for k, v in pdata.get("services", {}).items()},
                 processes={k: bool(v) for k, v in pdata.get("processes", {}).items()},
@@ -298,6 +356,10 @@ def save_config(config: Config) -> None:
         lines.append(f"[profile.{qname}]")
         lines.append(f'description = "{prof.description}"')
         lines.append(f'color = "{prof.color}"')
+        lines.append(f'icon = "{prof.icon}"')
+        if prof.activation_message:
+            # Escape newlines for TOML single-line string
+            lines.append(f'activation_message = "{prof.activation_message.replace(chr(10), "\\n")}"')
         if prof.builtin:
             lines.append("builtin = true")
         lines.append("")

@@ -5,19 +5,22 @@ After=network.target dbus.service
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/python3 /opt/obsidian-citadel/services/hub/main.py
+ExecStart=/usr/bin/python3 /home/jack/system-mode-switcher/services/hub/main.py
+WorkingDirectory=/home/jack/system-mode-switcher
+Environment="PYTHONPATH=/home/jack/.local/lib/python3.12/site-packages:/home/jack/system-mode-switcher"
 Restart=always
 RestartSec=5
 
-# Enterprise Sandboxing
-ProtectSystem=full
-ProtectHome=read-only
-# Allow access to necessary kernel tunables
-ReadWritePaths=/proc/sys/vm /sys/class/drm /sys/devices/system/cpu /opt/obsidian-citadel
+# Relaxed sandboxing — the reconciler needs to run systemctl, write to
+# /proc/sys, /sys/fs/cgroup, /sys/devices, /tmp (temp apply scripts), etc.
+# NoNewPrivileges and ProtectSystem=full were blocking all of that.
+ProtectSystem=false
+ProtectHome=false
 
-# IO/CPU Priority for SRE Standards
+# Safe scheduling — never starve the system
 CPUSchedulingPolicy=other
 IOSchedulingClass=best-effort
+Nice=5
 
 [Install]
 WantedBy=multi-user.target

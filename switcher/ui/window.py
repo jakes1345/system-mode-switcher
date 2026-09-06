@@ -95,6 +95,12 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         self.hub_status_label.get_style_context().add_class("citadel-stat")
         vitals_box.pack_start(self.hub_status_label, False, False, 0)
 
+        # Mode Banner — shows active mode identity
+        self.mode_banner = Gtk.Label(label="NO MODE ACTIVE")
+        self.mode_banner.get_style_context().add_class("mode-banner")
+        self._mode_banner_provider: Gtk.CssProvider | None = None
+        vitals_box.pack_start(self.mode_banner, False, False, 0)
+
         # GPU Detail
         self.gpu_vitals_label = Gtk.Label()
         self.gpu_vitals_label.get_style_context().add_class("citadel-stat")
@@ -292,7 +298,22 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         self.panel.apply_profile(prof.services, prof.processes, prof.tweaks)
         self._active_profile = name
         self.sidebar.set_active_profile(name)
+        self._update_mode_banner(prof)
         self._log(f"Profile '{name}' selected — click Apply to activate.")
+
+    def _update_mode_banner(self, prof) -> None:
+        """Update the header mode banner with the profile's identity and color."""
+        self.mode_banner.set_text(f"{prof.icon}  {prof.name.upper()} MODE")
+        ctx = self.mode_banner.get_style_context()
+        ctx.add_class("active")
+        # Apply profile-specific color via inline CSS
+        if self._mode_banner_provider:
+            ctx.remove_provider(self._mode_banner_provider)
+        self._mode_banner_provider = Gtk.CssProvider()
+        self._mode_banner_provider.load_from_data(
+            f".mode-banner.active {{ border-color: {prof.color}; box-shadow: 0 0 12px alpha({prof.color}, 0.3); }}".encode()
+        )
+        ctx.add_provider(self._mode_banner_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
 
     def _on_profile_delete(self, name: str) -> None:
         prof = self._config.profiles.get(name)
@@ -359,6 +380,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             if match:
                 self._active_profile = name
                 self.sidebar.set_active_profile(name)
+                self._update_mode_banner(prof)
                 self._log(f"Detected active profile: {name}")
                 return
         self._log("No profile matches current state.")
@@ -408,13 +430,34 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         self._progress.set_fraction(1.0 if ok else 0.0)
         GLib.timeout_add(2000, lambda: (self._progress.hide(), False)[-1])
 
+        # Flash the apply button green on success
+        if ok:
+            self._apply_btn.get_style_context().add_class("apply-flash")
+            GLib.timeout_add(1500, lambda: (self._apply_btn.get_style_context().remove_class("apply-flash"), False)[-1])
+
         self.panel.refresh_switches(on_done=self._detect_active_profile)
 
-        msg = f"Done! Profile applied." if ok else "Failed to apply profile."
-        self._log(msg)
+        # Build rich notification with mode-specific details
+        prof = self._config.profiles.get(self._active_profile) if self._active_profile else None
+        if ok and prof:
+            notif_title = f"{prof.icon} {prof.name.upper()} MODE"
+            notif_body = prof.activation_message or f"{prof.name} profile applied successfully."
+            log_msg = f"✅ {prof.icon} {prof.name} mode activated successfully."
+        elif ok:
+            notif_title = "Obsidian Citadel"
+            notif_body = "Profile applied successfully."
+            log_msg = "Done! Profile applied."
+        else:
+            notif_title = "Obsidian Citadel"
+            notif_body = "Failed to apply profile. Check the log console."
+            log_msg = "❌ Failed to apply profile."
+
+        self._log(log_msg)
 
         try:
-            n = Notify.Notification.new("Obsidian Citadel", msg, "preferences-system")
+            n = Notify.Notification.new(notif_title, notif_body, "preferences-system")
+            n.set_urgency(1)  # NORMAL urgency
+            n.set_timeout(5000)
             n.show()
         except Exception:
             pass

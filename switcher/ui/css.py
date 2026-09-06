@@ -435,4 +435,47 @@ headerbar button {
 headerbar button:hover {
     background-color: alpha(@accent_cyan, 0.1);
 }
+
+/* ── MODE BANNER (Header Active Mode Indicator) ── */
+
+.mode-banner {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    padding: 4px 14px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background-color: @bg_surface;
+    color: @text_muted;
+    transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mode-banner.active {
+    border-color: rgba(0, 212, 255, 0.4);
+    color: @text_primary;
+    box-shadow: 0 0 12px rgba(0, 212, 255, 0.15);
+}
+
+/* ── APPLY SUCCESS FLASH ── */
+
+.apply-flash {
+    background: linear-gradient(135deg, @accent_green 0%, @accent_cyan 100%);
+    box-shadow: 0 0 30px rgba(16, 185, 129, 0.3);
+}
+
+/* ── PROFILE CARD ENHANCEMENTS ── */
+
+.profile-card-icon {
+    font-size: 22px;
+    margin-right: 6px;
+}
+
+.profile-card-stats {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 9px;
+    color: @text_muted;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
+}
 """

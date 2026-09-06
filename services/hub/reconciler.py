@@ -13,7 +13,7 @@ class CitadelReconciler:
 
     def __init__(self, config_repo):
         self.config = config_repo
-        self.active_profile_name = "Default"
+        self.active_profile_name = None  # Idle until SetProfile is called explicitly
         self._running = False
 
     async def reconcile(self):
