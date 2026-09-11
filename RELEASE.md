@@ -32,7 +32,7 @@ sudo apt-get install -f  # resolves dependencies automatically
 Users can install Citadel on **any Linux distro** in a single command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jakes1345/system-mode-switcher/main/install.sh | bash
+curl -fsSL https://github.com/jakes1345/system-mode-switcher/raw/master/install.sh | bash
 ```
 
 ### What `install.sh` Does:
