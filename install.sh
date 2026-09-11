@@ -11,12 +11,32 @@ echo "=== 🛡️ Obsidian Citadel — Installer ==="
 # Check root
 if [ "$EUID" -ne 0 ]; then
     echo "Re-running with sudo..."
-    exec sudo bash "$0" "$@"
+    if [ -f "$0" ] && [ "$0" != "bash" ] && [ "$0" != "/usr/bin/bash" ] && [ "$0" != "sh" ] && [ "$0" != "/bin/bash" ]; then
+        exec sudo bash "$0" "$@"
+    else
+        exec sudo bash -c "$(curl -fsSL https://github.com/jakes1345/system-mode-switcher/raw/master/install.sh)" "$@"
+    fi
 fi
 
-# Get the actual user (not root)
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(eval echo "~$REAL_USER")
+
+# If run via curl pipe or SCRIPT_DIR doesn't have switcher/, fetch repository
+if [ ! -d "$SCRIPT_DIR/switcher" ]; then
+    echo "[0/4] Fetching latest Citadel release from GitHub..."
+    TMP_REPO="/tmp/citadel-install-repo"
+    rm -rf "$TMP_REPO"
+    mkdir -p "$TMP_REPO"
+    if command -v git >/dev/null 2>&1; then
+        git clone --depth 1 https://github.com/jakes1345/system-mode-switcher.git "$TMP_REPO" 2>/dev/null
+    fi
+    if [ ! -d "$TMP_REPO/switcher" ]; then
+        curl -fsSL https://github.com/jakes1345/system-mode-switcher/archive/refs/heads/master.tar.gz | tar -xz -C /tmp
+        rm -rf "$TMP_REPO"
+        mv /tmp/system-mode-switcher-master "$TMP_REPO"
+    fi
+    SCRIPT_DIR="$TMP_REPO"
+fi
 
 # Copy application
 echo "[1/4] Installing application to $APP_DIR..."
@@ -65,10 +85,21 @@ if [ -f "$SCRIPT_DIR/switcher/desktop/system-mode-switcher.svg" ]; then
 fi
 gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
 
+# Security & Services
+echo "[4/5] Deploying Polkit policy & Citadel control plane..."
+mkdir -p /usr/share/polkit-1/actions/
+cp "$SCRIPT_DIR/internal/security/com.obsidian.citadel.policy" /usr/share/polkit-1/actions/ 2>/dev/null || true
+cp "$SCRIPT_DIR/citadel-apply" /usr/local/bin/citadel-apply
+chmod 755 /usr/local/bin/citadel-apply
+
+cp "$SCRIPT_DIR/internal/systemd/citadel-hub.service" /etc/systemd/system/ 2>/dev/null || true
+systemctl daemon-reload 2>/dev/null || true
+systemctl enable citadel-hub.service 2>/dev/null || true
+systemctl restart citadel-hub.service 2>/dev/null || true
+
 # Config
-echo "[4/4] Setting up config..."
+echo "[5/5] Setting up user configuration..."
 CONFIG_SRC="$REAL_HOME/obsidian-citadel.toml"
-# Migrate old config if present
 OLD_CONFIG="$REAL_HOME/system-mode-switcher.toml"
 if [ -f "$OLD_CONFIG" ] && [ ! -f "$CONFIG_SRC" ]; then
     echo "  Migrating config from $OLD_CONFIG -> $CONFIG_SRC"
@@ -79,7 +110,12 @@ else
     echo "  No config found. App will use built-in defaults."
 fi
 
+# Cleanup temp repo if created
+if [ -d "/tmp/citadel-install-repo" ]; then
+    rm -rf /tmp/citadel-install-repo
+fi
+
 echo ""
-echo "=== ✅ Installation complete! ==="
-echo "Launch 'Obsidian Citadel' from your application menu."
-echo "Or run: python3 $APP_DIR/main.py"
+echo "=== ✅ Obsidian Citadel Installation Complete! ==="
+echo "Control plane active. Launch 'Obsidian Citadel' from your app menu."
+echo "CLI command: python3 $APP_DIR/citadel_cli.py status"
