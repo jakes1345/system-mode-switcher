@@ -66,47 +66,65 @@ class Config:
 # ── Built-in defaults ────────────────────────────────────────────────────
 
 DEFAULT_SERVICES = [
-    ServiceConfig("fail2ban.service", "Fail2Ban", "Intrusion prevention", "Security"),
-    ServiceConfig("snort.service", "Snort", "Network IDS/IPS", "Security"),
-    ServiceConfig("openvpn.service", "OpenVPN", "VPN tunnel", "Network"),
-    ServiceConfig("mysql.service", "MySQL", "Database server", "Data & AI"),
+    ServiceConfig("fail2ban.service", "Fail2Ban", "Intrusion prevention daemon", "Security"),
+    ServiceConfig("snort.service", "Snort", "Network IDS/IPS engine", "Security"),
+    ServiceConfig("openvpn.service", "OpenVPN", "VPN tunnel daemon", "Network"),
+    ServiceConfig("mysql.service", "MySQL", "Relational database server", "Data & AI"),
     ServiceConfig("postgresql@16-main.service", "PostgreSQL", "Database server", "Data & AI"),
-    ServiceConfig("docker.service", "Docker", "Container engine", "Virtualization"),
-    ServiceConfig("containerd.service", "Containerd", "Container runtime", "Virtualization"),
-    ServiceConfig("godot-server.service", "Godot Server", "Godot headless server", "System"),
-    ServiceConfig("php8.3-fpm.service", "PHP-FPM", "PHP process manager", "System"),
-    ServiceConfig("postfix@-.service", "Postfix", "Mail server", "Network"),
-    ServiceConfig("smbd.service", "Samba (SMB)", "File sharing", "Network"),
-    ServiceConfig("nmbd.service", "Samba (NMB)", "NetBIOS name service", "Network"),
-    ServiceConfig("tor@default.service", "Tor", "Anonymizing network", "Security"),
-    ServiceConfig("shadow-cypher.service", "ShadowCypher", "Router admin panel", "Security"),
-    ServiceConfig("cups.service", "CUPS", "Print service", "System"),
-    ServiceConfig("cups-browsed.service", "CUPS Browsed", "Printer discovery", "System"),
-    ServiceConfig("tailscaled.service", "Tailscale", "VPN mesh network", "Network"),
-    ServiceConfig("bluetooth.service", "Bluetooth", "Bluetooth service", "System"),
-    ServiceConfig("ModemManager.service", "ModemManager", "Modem manager", "Network"),
-    ServiceConfig("lactd.service", "LACT", "GPU control daemon", "System"),
-    ServiceConfig("ollama.service", "Ollama", "Local LLM runner", "Data & AI"),
+    ServiceConfig("docker.service", "Docker", "Container engine daemon", "Virtualization"),
+    ServiceConfig("containerd.service", "Containerd", "Container runtime engine", "Virtualization"),
+    ServiceConfig("nginx.service", "Nginx", "HTTP/HTTPS web server & dev proxy", "Network"),
+    ServiceConfig("cloudflared.service", "Cloudflare Tunnel", "Exposes local web services securely", "Network"),
+    ServiceConfig("avahi-daemon.service", "Avahi mDNS", "Zero-configuration network discovery", "Network"),
+    ServiceConfig("php8.3-fpm.service", "PHP-FPM", "PHP FastCGI process manager", "System"),
+    ServiceConfig("postfix@-.service", "Postfix", "Mail transfer agent", "Network"),
+    ServiceConfig("smbd.service", "Samba (SMB)", "SMB network file sharing", "Network"),
+    ServiceConfig("nmbd.service", "Samba (NMB)", "NetBIOS name server", "Network"),
+    ServiceConfig("tor@default.service", "Tor", "Anonymizing overlay network", "Security"),
+    ServiceConfig("shadow-cypher.service", "ShadowCypher", "Tactical router panel", "Security"),
+    ServiceConfig("cups.service", "CUPS", "Print spooler service", "System"),
+    ServiceConfig("cups-browsed.service", "CUPS Browsed", "Printer discovery daemon", "System"),
+    ServiceConfig("tailscaled.service", "Tailscale", "Mesh VPN daemon", "Network"),
+    ServiceConfig("bluetooth.service", "Bluetooth", "Bluetooth service daemon", "System"),
+    ServiceConfig("ModemManager.service", "ModemManager", "Cellular modem daemon", "Network"),
+    ServiceConfig("lactd.service", "LACT", "GPU control & power daemon", "System"),
+    ServiceConfig("ollama.service", "Ollama", "Local LLM runner daemon", "Data & AI"),
 ]
 
 DEFAULT_PROCESSES = [
-    ProcessConfig("qdrant", "Qdrant", "Vector database", "qdrant",
+    ProcessConfig("qdrant", "Qdrant Vector DB", "Standalone vector database", "qdrant",
                   "qdrant --config-path /etc/qdrant/config.yaml"),
     ProcessConfig("shadow-sentinel", "Sentinel AI", "Headless Recon Bot", "shadowcypher.core.irc_bot",
                   "python3 -m shadowcypher.core.irc_bot"),
     ProcessConfig("shadow-hub", "ShadowHub", "Core Tactical Backend", "shadowcypher.core.hub",
                   "python3 -m shadowcypher.core.hub"),
+    ProcessConfig("friday-hands", "Friday Hands", "AI agent execution server", "friday_hands|8102",
+                  "systemctl start friday-hands 2>/dev/null || true"),
+    ProcessConfig("compose-friday-ai", "Friday AI Stack", "Open WebUI + Brain + Qdrant (Docker)", "friday-webui|friday-brain",
+                  "docker compose -f '/media/jack/New Volume/FRIDAY_AI/docker-compose.yml' up -d"),
+    ProcessConfig("compose-poi", "POI OSINT Stack", "Search & OSINT stack (Docker)", "poi-api|poi-worker|poi-beat",
+                  "docker compose -f '/media/jack/New Volume/POI/docker-compose.yml' up -d 2>/dev/null || docker compose -f '/home/jack/POI/docker-compose.yml' up -d"),
+    ProcessConfig("compose-battleground", "Battleground Lab", "OWASP Juice Shop lab (Docker)", "battleground-juice-shop",
+                  "docker compose -f '/home/jack/ShadowCypher/shadowcypher/battleground/docker-compose.yml' up -d"),
+    ProcessConfig("compose-plandex", "Plandex AI Stack", "Plandex AI Postgres DB (Docker)", "app-plandex-postgres",
+                  "docker compose -f '/home/jack/plandex-cli-v2.2.1/app/docker-compose.yml' up -d"),
 ]
 
 _ALL_OFF = {s.name: False for s in DEFAULT_SERVICES}
-_KEEP_ON = {"tailscaled.service": True, "bluetooth.service": True, "lactd.service": True}
+_KEEP_ON = {
+    "bluetooth.service": True,
+    "lactd.service": True,
+    "cloudflared.service": True,
+    "tailscaled.service": True,
+}
 
 _SVC_PROGRAMMING = {
     "fail2ban.service": False, "snort.service": False, "openvpn.service": False,
     "mysql.service": True, "postgresql@16-main.service": True,
     "docker.service": True, "containerd.service": True,
-    "godot-server.service": False, "php8.3-fpm.service": True,
-    "postfix@-.service": False, "smbd.service": True, "nmbd.service": True,
+    "nginx.service": True, "cloudflared.service": True, "avahi-daemon.service": False,
+    "php8.3-fpm.service": True, "postfix@-.service": False,
+    "smbd.service": True, "nmbd.service": True,
     "tor@default.service": False, "shadow-cypher.service": True,
     "cups.service": True, "cups-browsed.service": True,
     "tailscaled.service": True, "bluetooth.service": True,
@@ -116,22 +134,30 @@ _SVC_PROGRAMMING = {
 DEFAULT_PROFILES: dict[str, ProfileConfig] = {
     "Gaming": ProfileConfig(
         name="Gaming",
-        description="Maximum FPS. Kills everything non-essential.",
+        description="Maximum FPS. Kills everything non-essential (Docker, DBs, web servers).",
         color="#e74c3c", icon="🎮", builtin=True,
         activation_message=(
             "GAMING MODE ACTIVE\n\n"
-            "• CPU Governor → PERFORMANCE (all 12 threads locked to max freq)\n"
-            "• CPU Cores 4-5 shielded (threads 4,5,10,11 reserved for game)\n"
-            "• THP → DISABLED (no compaction latency spikes)\n"
-            "• NVMe Scheduler → none (zero overhead)\n"
-            "• Pipewire → low-latency priority boosted\n"
-            "• PCIe ASPM → disabled (no link-state switching lag)\n"
-            "• USB power suspend → disabled (no input lag)\n"
+            "• CPU Governor → PERFORMANCE (all 12 threads locked to 4.2 GHz)\n"
+            "• Docker + Containerd + ALL Docker Stacks → TERMINATED (~2 GB RAM freed)\n"
+            "• MySQL + PostgreSQL + Ollama → KILLED\n"
+            "• Nginx + PHP-FPM + Postfix + Tor + Fail2Ban → KILLED\n"
+            "• THP → DISABLED (zero compaction latency spikes)\n"
             "• Swappiness → 10 (minimal swap pressure)\n"
-            "• All non-essential services killed"
+            "• Pipewire low-latency audio boosted\n"
+            "• LACT GPU control + Bluetooth + Cloudflare Tunnel → KEPT"
         ),
         services={**_ALL_OFF, **_KEEP_ON},
-        processes={"qdrant": False},
+        processes={
+            "qdrant": False,
+            "shadow-sentinel": False,
+            "shadow-hub": False,
+            "friday-hands": False,
+            "compose-friday-ai": False,
+            "compose-poi": False,
+            "compose-battleground": False,
+            "compose-plandex": False,
+        },
         tweaks=TweakConfig(
             swappiness=10,
             compositor_unredirect=True,
@@ -146,43 +172,64 @@ DEFAULT_PROFILES: dict[str, ProfileConfig] = {
     ),
     "Programming": ProfileConfig(
         name="Programming",
-        description="Full dev stack. Docker, DBs, Samba. AI off.",
+        description="Full dev stack. Docker, DBs, Nginx, Samba, Cloudflare. AI model off.",
         color="#2ecc71", icon="💻", builtin=True,
         activation_message=(
             "DEV MODE ACTIVE\n\n"
             "• Docker + Containerd → ON\n"
+            "• Plandex DB stack → ONLINE\n"
             "• PostgreSQL 16 + MySQL → ON\n"
-            "• PHP-FPM + Samba → ON\n"
-            "• ShadowCypher → ON\n"
-            "• Ollama / Qdrant → OFF (saving RAM for builds)\n"
+            "• Nginx (phaze.world/xat.dev) + PHP-FPM → ON\n"
+            "• Cloudflare Tunnel + Samba → ON\n"
+            "• ShadowCypher Panel → ON\n"
+            "• Heavy AI stacks (Ollama/Friday AI) → OFF (saving RAM for builds)\n"
             "• CPU Governor → schedutil (balanced)\n"
             "• Swappiness → 30"
         ),
         services=dict(_SVC_PROGRAMMING),
-        processes={"qdrant": False},
+        processes={
+            "qdrant": False,
+            "shadow-sentinel": False,
+            "shadow-hub": False,
+            "friday-hands": False,
+            "compose-friday-ai": False,
+            "compose-poi": False,
+            "compose-battleground": False,
+            "compose-plandex": True,
+        },
         tweaks=TweakConfig(swappiness=30),
     ),
     "AI + Dev": ProfileConfig(
         name="AI + Dev",
-        description="LLM + Vector DB + full dev stack online.",
+        description="LLM + Friday AI stack + Vector DB + full dev stack online.",
         color="#9b59b6", icon="🧠", builtin=True,
         activation_message=(
             "AI + DEV MODE ACTIVE\n\n"
             "• Ollama LLM Runner → ON\n"
-            "• Qdrant Vector Database → ON\n"
-            "• Docker + PostgreSQL + MySQL → ON\n"
-            "• Full dev stack running\n"
+            "• Friday AI stack (Open WebUI + Brain + Qdrant) → ONLINE\n"
+            "• Friday Hands AI Agent Server → ONLINE\n"
+            "• Docker + Plandex DB + PostgreSQL + MySQL → ON\n"
+            "• Nginx + Cloudflare Tunnel → ON\n"
             "• THP → madvise (optimized for large model allocations)\n"
             "• CPU Governor → schedutil (balanced)\n"
             "• Swappiness → 30"
         ),
         services={**_SVC_PROGRAMMING, "ollama.service": True},
-        processes={"qdrant": True},
-        tweaks=TweakConfig(swappiness=30),
+        processes={
+            "qdrant": True,
+            "shadow-sentinel": False,
+            "shadow-hub": False,
+            "friday-hands": True,
+            "compose-friday-ai": True,
+            "compose-poi": False,
+            "compose-battleground": False,
+            "compose-plandex": True,
+        },
+        tweaks=TweakConfig(swappiness=30, thp_mode="madvise"),
     ),
     "Red Team": ProfileConfig(
         name="Red Team",
-        description="Offensive security lab. Stealth + IDS + Tor.",
+        description="Offensive security lab. Stealth + IDS + Tor + Battleground lab.",
         color="#ff1744", icon="🔴", builtin=True,
         activation_message=(
             "RED TEAM MODE ACTIVE\n\n"
@@ -190,51 +237,74 @@ DEFAULT_PROFILES: dict[str, ProfileConfig] = {
             "• Fail2Ban Intrusion Prevention → ARMED\n"
             "• Snort Network IDS/IPS → ARMED\n"
             "• Shadow Sentinel + ShadowHub → DEPLOYED\n"
+            "• Battleground Lab (Juice Shop) → ONLINE\n"
             "• MAC Address → RANDOMIZED\n"
-            "• Bluetooth → KILLED\n"
-            "• Docker + Databases → ON (lab infra)\n"
+            "• Bluetooth + Avahi → KILLED (stealth)\n"
+            "• Cloudflare Tunnel → DISABLED (OPSEC protection)\n"
+            "• Docker + Containerd → ON (lab infra)\n"
             "• Stealth Mode → ENABLED\n"
             "• RAM Wipe on Exit → ARMED"
         ),
         services={
             "fail2ban.service": True, "snort.service": True, "openvpn.service": False,
-            "mysql.service": True, "postgresql@16-main.service": True,
+            "mysql.service": False, "postgresql@16-main.service": False,
             "docker.service": True, "containerd.service": True,
-            "godot-server.service": False, "php8.3-fpm.service": False,
-            "postfix@-.service": False, "smbd.service": False, "nmbd.service": False,
+            "nginx.service": False, "cloudflared.service": False, "avahi-daemon.service": False,
+            "php8.3-fpm.service": False, "postfix@-.service": False,
+            "smbd.service": False, "nmbd.service": False,
             "tor@default.service": True, "shadow-cypher.service": False,
             "cups.service": False, "cups-browsed.service": False,
             "tailscaled.service": True, "bluetooth.service": False,
             "ModemManager.service": False, "lactd.service": True, "ollama.service": False,
         },
-        processes={"qdrant": False, "shadow-sentinel": True, "shadow-hub": True},
+        processes={
+            "qdrant": False,
+            "shadow-sentinel": True,
+            "shadow-hub": True,
+            "friday-hands": False,
+            "compose-friday-ai": False,
+            "compose-poi": False,
+            "compose-battleground": True,
+            "compose-plandex": False,
+        },
         tweaks=TweakConfig(swappiness=30, stealth_mode=True, clear_ram_on_exit=True),
     ),
     "Game Dev": ProfileConfig(
         name="Game Dev",
-        description="Godot engine + MySQL + Samba. Lean background.",
+        description="MySQL + Nginx + Samba file sharing. Lean background.",
         color="#e67e22", icon="🎨", builtin=True,
         activation_message=(
             "GAME DEV MODE ACTIVE\n\n"
-            "• Godot Headless Server → ON\n"
-            "• MySQL → ON (game data)\n"
-            "• Samba File Sharing → ON\n"
-            "• Docker / Containers → OFF (save resources)\n"
-            "• PostgreSQL → OFF\n"
+            "• MySQL → ON (game assets/user db)\n"
+            "• Nginx → ON (preview builds)\n"
+            "• Samba File Sharing → ON (asset sharing)\n"
+            "• Docker / Containers → OFF (free resources)\n"
+            "• PostgreSQL + Heavy AI → OFF\n"
             "• CPU Governor → schedutil (balanced)\n"
             "• Swappiness → 30"
         ),
         services={
+            "fail2ban.service": False, "snort.service": False, "openvpn.service": False,
             "mysql.service": True, "postgresql@16-main.service": False,
             "docker.service": False, "containerd.service": False,
-            "godot-server.service": True, "php8.3-fpm.service": False,
-            "postfix@-.service": False, "smbd.service": True, "nmbd.service": True,
+            "nginx.service": True, "cloudflared.service": False, "avahi-daemon.service": False,
+            "php8.3-fpm.service": False, "postfix@-.service": False,
+            "smbd.service": True, "nmbd.service": True,
             "tor@default.service": False, "shadow-cypher.service": False,
             "cups.service": False, "cups-browsed.service": False,
             "tailscaled.service": True, "bluetooth.service": True,
             "ModemManager.service": False, "lactd.service": True, "ollama.service": False,
         },
-        processes={"qdrant": False},
+        processes={
+            "qdrant": False,
+            "shadow-sentinel": False,
+            "shadow-hub": False,
+            "friday-hands": False,
+            "compose-friday-ai": False,
+            "compose-poi": False,
+            "compose-battleground": False,
+            "compose-plandex": False,
+        },
         tweaks=TweakConfig(swappiness=30),
     ),
 }

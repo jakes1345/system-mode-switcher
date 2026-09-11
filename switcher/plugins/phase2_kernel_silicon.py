@@ -72,24 +72,20 @@ class Phase2KernelSilicon:
         lines.append(f'echo "CPU_GOVERNOR: Done — governor={governor}, epp={epp}"')
 
     def cset_cpu_shielding(self, lines: list):
-        """Reserve physical cores 4 and 5 (CPUs 4,5,10,11) exclusively for games.
-
-        Ryzen 5 3600 physical->logical map:
-          Core 0: CPUs 0,6  | Core 1: CPUs 1,7  | Core 2: CPUs 2,8
-          Core 3: CPUs 3,9  | Core 4: CPUs 4,10 | Core 5: CPUs 5,11
-
-        Strategy: push all system services to cores 0-3 (CPUs 0-3,6-9),
-        leaving cores 4-5 (CPUs 4,5,10,11) clean for the game process.
-        """
+        """Dynamically isolate gaming cores based on actual system CPU topology."""
         if not getattr(self.config, 'cpu_shielding', False):
             return
-        lines.append('echo "CPU_SHIELDING: Isolating cores 4-5 (CPUs 4,5,10,11) for gaming..."')
-        # Push systemd system.slice to cores 0-3 (both SMT siblings)
-        lines.append('echo "0,1,2,3,6,7,8,9" > /sys/fs/cgroup/system.slice/cpuset.cpus 2>/dev/null || true')
-        lines.append('echo "0,1,2,3,6,7,8,9" > /sys/fs/cgroup/user.slice/cpuset.cpus 2>/dev/null || true')
-        # Set IRQ affinity away from game cores (kernel smp_affinity)
-        lines.append('for f in /proc/irq/*/smp_affinity_list; do echo "0-3,6-9" > "$f" 2>/dev/null || true; done')
-        lines.append('echo "CPU_SHIELDING: Cores 4,5 (threads 4,5,10,11) isolated. System on 0-3,6-9."')
+        lines.append('echo "CPU_SHIELDING: Dynamically calculating CPU topology..."')
+        lines.append('total_cpus=$(nproc 2>/dev/null || echo 4)')
+        lines.append('if [ "$total_cpus" -gt 4 ]; then')
+        lines.append('    sys_max=$((total_cpus - 3))')
+        lines.append('    game_min=$((total_cpus - 2))')
+        lines.append('    game_max=$((total_cpus - 1))')
+        lines.append('    echo "0-$sys_max" > /sys/fs/cgroup/system.slice/cpuset.cpus 2>/dev/null || true')
+        lines.append('    echo "0-$sys_max" > /sys/fs/cgroup/user.slice/cpuset.cpus 2>/dev/null || true')
+        lines.append('    for f in /proc/irq/*/smp_affinity_list; do echo "0-$sys_max" > "$f" 2>/dev/null || true; done')
+        lines.append('    echo "CPU_SHIELDING: Isolated game CPUs $game_min-$game_max. System tasks on 0-$sys_max."')
+        lines.append('fi')
 
     def dynamic_microcode(self, lines: list):
         # Applied dynamic_microcode

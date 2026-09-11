@@ -5,7 +5,7 @@ Continuously enforces the 'Desired State' to eliminate configuration drift.
 
 import time
 import asyncio
-from switcher.backend import is_service_active, is_service_frozen, is_process_frozen, get_swappiness, build_apply_script, run_apply_script, is_process_running
+from switcher.backend import is_service_active, is_service_frozen, is_process_frozen, get_swappiness, build_apply_script, run_apply_script, is_process_running, is_service_installed
 from switcher.core.logger import logger
 
 class CitadelReconciler:
@@ -30,6 +30,9 @@ class CitadelReconciler:
         
         # 1. Reconcile Services
         for svc_name, desired_state in profile.services.items():
+            if not is_service_installed(svc_name):
+                continue  # Skip services not installed on this host OS
+                
             if isinstance(desired_state, bool):
                 desired_state = "start" if desired_state else "stop"
                 

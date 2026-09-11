@@ -13,9 +13,11 @@ from switcher.backend import (
     GPU_VENDOR,
     get_compositor_unredirect,
     get_gpu_performance_mode,
+    get_gpu_power_limits,
     get_swappiness,
     is_process_running,
     is_service_active,
+    is_service_installed,
 )
 from switcher.config import Config, TweakConfig
 
@@ -26,6 +28,8 @@ class ServiceRow(Gtk.Box):
     def __init__(self, key: str, display: str, description: str):
         super().__init__(spacing=8)
         self.key = key
+        self.base_description = description
+        self.is_installed = True
         self.get_style_context().add_class("service-row")
         self.set_margin_start(4)
         self.set_margin_end(4)
@@ -52,6 +56,17 @@ class ServiceRow(Gtk.Box):
         self.switch = Gtk.Switch()
         self.switch.set_valign(Gtk.Align.CENTER)
         self.pack_start(self.switch, False, False, 0)
+
+    def set_installed(self, installed: bool) -> None:
+        self.is_installed = installed
+        if not installed:
+            self.desc_label.set_text(f"{self.base_description} (Not Installed)")
+            self.switch.set_sensitive(False)
+            self.status_dot.set_sensitive(False)
+        else:
+            self.desc_label.set_text(self.base_description)
+            self.switch.set_sensitive(True)
+            self.status_dot.set_sensitive(True)
 
     def set_status(self, active: bool) -> None:
         ctx = self.status_dot.get_style_context()
@@ -80,6 +95,7 @@ class ServicePanel(Gtk.Box):
         self._config = config
         self.service_rows: dict[str, ServiceRow] = {}
         self.process_rows: dict[str, ServiceRow] = {}
+        self._apply_guard_active = False  # True while a profile is being applied
 
         # Search
         self.search_entry = Gtk.SearchEntry()
@@ -148,9 +164,11 @@ class ServicePanel(Gtk.Box):
             ("powersave", "Power Efficient")
         ], "performance")
 
-        # GPU Power Limit (NVIDIA Only)
-        if GPU_VENDOR == "nvidia":
-            self.pl_scale = self._add_tweak_scale(inner, "NVIDIA Power Limit (W)", 125, 175, 175)
+        # GPU Power Limit (NVIDIA & AMD)
+        if GPU_VENDOR in ("nvidia", "amd"):
+            pl_min, pl_max, pl_def = get_gpu_power_limits()
+            label_title = f"{GPU_VENDOR.upper()} Power Limit (W)"
+            self.pl_scale = self._add_tweak_scale(inner, label_title, pl_min, pl_max, pl_def)
 
         # THP Mode
         self.thp_combo = self._add_tweak_combo(inner, "Transparent Hugepages", [
@@ -213,7 +231,11 @@ class ServicePanel(Gtk.Box):
         return cb
 
     def refresh_status(self) -> None:
-        """Update status dots from live system state in background thread."""
+        """Update status dots from live system state in background thread.
+        
+        This ONLY updates the colored dots (actual state) — it never touches
+        the switches (desired state). Safe to call at any time.
+        """
         services = list(self.service_rows.keys())
         processes = [
             (p.id, p.grep)
@@ -222,12 +244,15 @@ class ServicePanel(Gtk.Box):
         ]
 
         def _worker():
+            svc_installed = {name: is_service_installed(name) for name in services}
             svc_status = {name: is_service_active(name) for name in services}
             proc_status = {pid: is_process_running(grep) for pid, grep in processes}
             def _apply():
                 for name, active in svc_status.items():
                     if name in self.service_rows:
-                        self.service_rows[name].set_status(active)
+                        row = self.service_rows[name]
+                        row.set_installed(svc_installed.get(name, True))
+                        row.set_status(active)
                 for pid, active in proc_status.items():
                     if pid in self.process_rows:
                         self.process_rows[pid].set_status(active)
@@ -241,7 +266,19 @@ class ServicePanel(Gtk.Box):
 
         Runs subprocess calls (systemctl, pgrep, gsettings, nvidia-settings) off the
         main thread so the window paints instantly instead of blocking 1-3s on startup.
+        
+        IMPORTANT: This sets switches to match ACTUAL system state. Do NOT call this
+        immediately after applying a profile — the reconciler needs time to converge.
+        Use refresh_status() instead to update dots only.
         """
+        # If a profile was just applied, skip the full switch-clobber.
+        # Only the status dots should update until the reconciler converges.
+        if self._apply_guard_active:
+            self.refresh_status()
+            if callable(on_done):
+                on_done()
+            return
+
         services = list(self.service_rows.keys())
         processes = [
             (p.id, p.grep)
@@ -251,6 +288,7 @@ class ServicePanel(Gtk.Box):
 
         def _probe():
             results = {
+                "installed": {name: is_service_installed(name) for name in services},
                 "services": {name: is_service_active(name) for name in services},
                 "processes": {pid: is_process_running(grep) for pid, grep in processes},
                 "swappiness": get_swappiness(),
@@ -265,6 +303,8 @@ class ServicePanel(Gtk.Box):
         for svc_name, active in results["services"].items():
             row = self.service_rows.get(svc_name)
             if row:
+                installed = results.get("installed", {}).get(svc_name, True)
+                row.set_installed(installed)
                 row.switch.set_active(active)
                 row.set_status(active)
 
@@ -284,14 +324,21 @@ class ServicePanel(Gtk.Box):
 
     def apply_profile(self, services: dict[str, bool], processes: dict[str, bool],
                       tweaks: TweakConfig) -> None:
-        """Set switches to match a profile. Does NOT apply to system."""
+        """Set switches AND status dots to match a profile's desired state.
+        
+        This gives the user a coherent view: switches show what the system WILL
+        look like, and dots preview the target state. Does NOT apply to system.
+        """
         for svc_name, desired in services.items():
             if svc_name in self.service_rows:
                 self.service_rows[svc_name].switch.set_active(desired)
+                # Preview: show dot as the target state so UI is coherent
+                self.service_rows[svc_name].set_status(desired)
 
         for proc_id, desired in processes.items():
             if proc_id in self.process_rows:
                 self.process_rows[proc_id].switch.set_active(desired)
+                self.process_rows[proc_id].set_status(desired)
 
         self.swappiness_scale.set_value(tweaks.swappiness)
         self.unredirect_switch.set_active(tweaks.compositor_unredirect)

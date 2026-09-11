@@ -170,9 +170,43 @@ def get_gpu_vitals() -> dict:
 
 # ── Service Management ────────────────────────────────────────────────────
 
+_INSTALLED_SERVICES_CACHE: set[str] | None = None
+
+def get_installed_services(force_refresh: bool = False) -> set[str]:
+    """Discover all installed systemd unit files on this system."""
+    global _INSTALLED_SERVICES_CACHE
+    if _INSTALLED_SERVICES_CACHE is not None and not force_refresh:
+        return _INSTALLED_SERVICES_CACHE
+    try:
+        r = subprocess.run(
+            ["systemctl", "list-unit-files", "--type=service", "--no-legend"],
+            capture_output=True, text=True, timeout=5,
+        )
+        installed = set()
+        for line in r.stdout.splitlines():
+            parts = line.split()
+            if parts:
+                installed.add(parts[0])
+        _INSTALLED_SERVICES_CACHE = installed
+        return installed
+    except (subprocess.TimeoutExpired, OSError):
+        return set()
+
+def is_service_installed(name: str) -> bool:
+    """Check if a systemd service is installed on this host OS."""
+    installed = get_installed_services()
+    if not installed:
+        try:
+            r = subprocess.run(["systemctl", "status", name], capture_output=True, text=True, timeout=3)
+            return "Unit " not in r.stderr and "could not be found" not in r.stderr
+        except OSError:
+            return True
+    return name in installed
 
 def is_service_active(name: str) -> bool:
     """Check if a systemd service is active (and NOT frozen)."""
+    if not is_service_installed(name):
+        return False
     try:
         r = subprocess.run(
             ["systemctl", "is-active", name],
@@ -190,6 +224,8 @@ def is_service_active(name: str) -> bool:
 
 def is_service_frozen(name: str) -> bool:
     """Check if a systemd service is currently frozen via Cgroups v2."""
+    if not is_service_installed(name):
+        return False
     try:
         r = subprocess.run(["systemctl", "show", "-p", "FreezerState", name], capture_output=True, text=True, timeout=5)
         return "FreezerState=frozen" in r.stdout
@@ -292,23 +328,50 @@ def get_ram_info() -> tuple[float, float]:
 
 # ── Hardware Tunnels (Kernel-Side) ────────────────────────────────────────
 
+def get_gpu_power_limits() -> tuple[int, int, int]:
+    """Return (min_watts, max_watts, default_watts) for current GPU dynamically."""
+    if GPU_VENDOR == "nvidia":
+        try:
+            r = subprocess.run(
+                ["nvidia-smi", "--query-gpu=power.min_limit,power.max_limit,power.default_limit", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                parts = [int(float(x.strip())) for x in r.stdout.strip().split(",")]
+                if len(parts) >= 3:
+                    return parts[0], parts[1], parts[2]
+        except (subprocess.TimeoutExpired, OSError, ValueError):
+            pass
+    elif GPU_VENDOR == "amd":
+        try:
+            r = subprocess.run(["lact", "info"], capture_output=True, text=True, timeout=3)
+            if r.returncode == 0:
+                # LACT default fallback
+                return 100, 300, 200
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+    return 100, 250, 175
+
 def set_cpu_governor(governor: str) -> str:
     """Force CPU governor across all cores via sysfs."""
     try:
         path = "/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor"
-        cmd = f"for f in {path}; do echo {governor} > $f; done"
+        cmd = f"for f in {path}; do echo {governor} > $f 2>/dev/null || true; done"
         return cmd
     except (OSError, ValueError):
         return ""
 
 def set_gpu_power_limit(watts: int) -> str:
-    """Set NVIDIA power limit in Watts."""
-    if GPU_VENDOR != "nvidia": return ""
-    return f"nvidia-smi -pl {watts}"
+    """Set GPU power limit in Watts across NVIDIA/AMD."""
+    if GPU_VENDOR == "nvidia":
+        return f"nvidia-smi -pl {watts} 2>/dev/null || true"
+    elif GPU_VENDOR == "amd":
+        return f"lact set-power-limit {watts} 2>/dev/null || for f in /sys/class/drm/card0/device/hwmon/hwmon*/power1_cap; do echo $((watts*1000000)) > $f 2>/dev/null || true; done"
+    return ""
 
 def set_kernel_thp(mode: str) -> str:
     """Tune Transparent Hugepages (always | madvise | never)."""
-    return f"echo {mode} > /sys/kernel/mm/transparent_hugepage/enabled"
+    return f"echo {mode} > /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null || true"
 
 # ── Enhanced Apply Logic ──────────────────────────────────────────────────
 
@@ -424,6 +487,14 @@ def build_apply_script(
         lines.append(f"systemctl start {svc} 2>/dev/null || true")
         
     for proc_id, grep_pattern in processes_to_kill:
+        if proc_id == "compose-friday-ai":
+            lines.append("docker compose -f '/media/jack/New Volume/FRIDAY_AI/docker-compose.yml' stop 2>/dev/null || true")
+        elif proc_id == "compose-poi":
+            lines.append("docker compose -f '/media/jack/New Volume/POI/docker-compose.yml' stop 2>/dev/null || docker compose -f '/home/jack/POI/docker-compose.yml' stop 2>/dev/null || true")
+        elif proc_id == "compose-battleground":
+            lines.append("docker compose -f '/home/jack/ShadowCypher/shadowcypher/battleground/docker-compose.yml' stop 2>/dev/null || true")
+        elif proc_id == "compose-plandex":
+            lines.append("docker compose -f '/home/jack/plandex-cli-v2.2.1/app/docker-compose.yml' stop 2>/dev/null || true")
         lines.append(f"pkill -f '{grep_pattern}' 2>/dev/null || true")
         lines.append(f"rmdir /sys/fs/cgroup/citadel_cryo_{proc_id} 2>/dev/null || true")
         
@@ -437,8 +508,9 @@ def build_apply_script(
     for proc_id, start_cmd in processes_to_start:
         lines.append(f"echo 0 > /sys/fs/cgroup/citadel_cryo_{proc_id}/cgroup.freeze 2>/dev/null || true")
         if start_cmd:
-            lines.append(f"if ! pgrep -f '{proc_id}' >/dev/null 2>&1; then")
-            lines.append(f"    nohup {start_cmd} >/dev/null 2>&1 &")
+            check_pattern = proc_id.replace("compose-", "")
+            lines.append(f"if ! pgrep -f '{check_pattern}' >/dev/null 2>&1; then")
+            lines.append(f"    {start_cmd} >/dev/null 2>&1 &")
             lines.append(f"fi")
 
     lines.append('echo "RECONCILE_SUCCESS"')

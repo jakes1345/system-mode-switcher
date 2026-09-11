@@ -65,6 +65,10 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         self._start_telemetry_heartbeat()
         self._async_initial_refresh()
 
+        # How long (in seconds) to wait after apply before allowing
+        # refresh_switches to probe live state again.
+        self._APPLY_CONVERGENCE_SECS = 15
+
         GLib.timeout_add_seconds(30, self._auto_refresh)
 
     def _async_initial_refresh(self) -> None:
@@ -295,6 +299,8 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         prof = self._config.profiles.get(name)
         if not prof:
             return
+        # Activate the guard so refresh_switches won't clobber the desired state
+        self.panel._apply_guard_active = True
         self.panel.apply_profile(prof.services, prof.processes, prof.tweaks)
         self._active_profile = name
         self.sidebar.set_active_profile(name)
@@ -435,7 +441,25 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             self._apply_btn.get_style_context().add_class("apply-flash")
             GLib.timeout_add(1500, lambda: (self._apply_btn.get_style_context().remove_class("apply-flash"), False)[-1])
 
-        self.panel.refresh_switches(on_done=self._detect_active_profile)
+        if ok:
+            # ── KEY FIX: Do NOT call refresh_switches here. ──
+            # The reconciler hasn't had time to actually start/stop services yet
+            # (it runs on a 10s loop). If we probe live state now, we'd read the
+            # OLD state and clobber the switches back to pre-apply values.
+            #
+            # Instead:
+            # 1. Keep the apply guard active so switches stay at desired state
+            # 2. Schedule a delayed status-dot-only refresh (5s) to let reconciler
+            #    converge, then update dots to show actual convergence
+            # 3. Lift the guard after convergence time so normal auto-refresh
+            #    can eventually sync everything
+            self.panel._apply_guard_active = True
+            GLib.timeout_add_seconds(5, self._delayed_status_refresh)
+            GLib.timeout_add_seconds(self._APPLY_CONVERGENCE_SECS, self._lift_apply_guard)
+        else:
+            # On failure, DO refresh to show actual state
+            self.panel._apply_guard_active = False
+            self.panel.refresh_switches(on_done=self._detect_active_profile)
 
         # Build rich notification with mode-specific details
         prof = self._config.profiles.get(self._active_profile) if self._active_profile else None
@@ -461,6 +485,18 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             n.show()
         except Exception:
             pass
+
+    def _delayed_status_refresh(self) -> bool:
+        """Called ~5s after apply to update status dots once reconciler has had time to act."""
+        self.panel.refresh_status()
+        return False  # one-shot timer
+
+    def _lift_apply_guard(self) -> bool:
+        """Called after convergence time to allow full refresh_switches to work again."""
+        self.panel._apply_guard_active = False
+        # Now do one final full refresh to sync everything
+        self.panel.refresh_switches(on_done=self._detect_active_profile)
+        return False  # one-shot timer
 
     # ── Auto-Refresh ──────────────────────────────────────────────────────
 
