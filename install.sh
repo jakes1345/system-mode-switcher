@@ -8,18 +8,21 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "=== 🛡️ Obsidian Citadel — Installer ==="
 
-# Check root
+# Check root elevation
 if [ "$EUID" -ne 0 ]; then
-    echo "Re-running with sudo..."
-    if [ -f "$0" ] && [ "$0" != "bash" ] && [ "$0" != "/usr/bin/bash" ] && [ "$0" != "sh" ] && [ "$0" != "/bin/bash" ]; then
-        exec sudo bash "$0" "$@"
-    else
-        exec sudo bash -c "$(curl -fsSL https://github.com/jakes1345/system-mode-switcher/raw/master/install.sh)" "$@"
-    fi
+    echo "=== 🛡️ Obsidian Citadel — Installer ==="
+    echo "Root privileges are required to install Citadel system services."
+    echo ""
+    echo "Please run with sudo:"
+    echo "  curl -fsSL https://github.com/jakes1345/system-mode-switcher/raw/master/install.sh | sudo bash"
+    exit 1
 fi
 
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(eval echo "~$REAL_USER")
+
+# Determine script directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo "")"
 
 # If run via curl pipe or SCRIPT_DIR doesn't have switcher/, fetch repository
 if [ ! -d "$SCRIPT_DIR/switcher" ]; then
@@ -31,7 +34,7 @@ if [ ! -d "$SCRIPT_DIR/switcher" ]; then
         git clone --depth 1 https://github.com/jakes1345/system-mode-switcher.git "$TMP_REPO" 2>/dev/null
     fi
     if [ ! -d "$TMP_REPO/switcher" ]; then
-        curl -fsSL https://github.com/jakes1345/system-mode-switcher/archive/refs/heads/master.tar.gz | tar -xz -C /tmp
+        curl -fsSL https://github.com/jakes1345/system-mode-switcher/archive/refs/heads/master.tar.gz | tar -xz -C /tmp 2>/dev/null
         rm -rf "$TMP_REPO"
         mv /tmp/system-mode-switcher-master "$TMP_REPO"
     fi
