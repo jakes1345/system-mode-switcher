@@ -21,7 +21,7 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update && sudo apt-get install -y python3-gi gir1.2-gtk-3.0 gir1.2-notify-0.7
-        pip install psutil ruff
+        pip install -r requirements-hub.txt ruff
 
     - name: Static Analysis
       run: ruff check switcher/
