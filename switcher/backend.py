@@ -283,11 +283,11 @@ def get_running_containers() -> set[str]:
     """
     try:
         r = subprocess.run(["systemctl", "is-active", "docker.service"],
-                           capture_output=True, text=True, timeout=5)
+                           capture_output=True, text=True, timeout=5, check=False)
         if r.stdout.strip() != "active":
             return set()
         r = subprocess.run(["docker", "ps", "--format", "{{.Names}}"],
-                           capture_output=True, text=True, timeout=10)
+                           capture_output=True, text=True, timeout=10, check=False)
         if r.returncode != 0:
             return set()
         return {line.strip() for line in r.stdout.splitlines() if line.strip()}
