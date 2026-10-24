@@ -10,10 +10,12 @@
   <action id="com.obsidian.citadel.apply">
     <description>Apply system mode modifications</description>
     <message>Authentication is required to apply hardware and service performance tweaks.</message>
+    <!-- Admin password required (cached ~5 min). This wrapper runs scripts as
+         root, so "yes" here meant passwordless root for any local process. -->
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
-      <allow_active>yes</allow_active>
+      <allow_active>auth_admin_keep</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/citadel-apply</annotate>
     <annotate key="org.freedesktop.policykit.exec.allow_gui">false</annotate>

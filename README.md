@@ -24,5 +24,18 @@ sudo ./deploy_citadel.sh
 ```
 
 ## 🛠️ Modifying Profiles
-Edit `~/.config/obsidian-citadel.toml` or use the GTK Dashboard to tweak your profiles.
-The "Apply" action uses `pkexec` securely through a whitelisted PolicyKit wrapper.
+Edit `~/obsidian-citadel.toml` or use the GTK Dashboard to tweak your profiles.
+
+## 🔐 Security Model
+- The Hub listens only on the unix socket `/run/citadel/hub.sock`, owned by the
+  desktop user named in `CITADEL_USER` (mode `0600`). There is no TCP port.
+- The Hub reads **profile values only** from your `~/obsidian-citadel.toml`
+  (on/off for known services and processes, validated tweak values).
+- The services and processes it may manage — including every `start_cmd`/`stop_cmd`
+  — come from the root-owned `/etc/obsidian-citadel/citadel.toml` (same TOML
+  format, `[[service]]`/`[[process]]` tables), or the built-in defaults if it is
+  absent. The file and its directories must be owned by root and not
+  group/world-writable, or the Hub refuses it.
+- The `citadel-apply` PolicyKit action requires an admin password
+  (`auth_admin_keep`) and only runs a private root-owned copy of a script owned
+  by the authenticating user.

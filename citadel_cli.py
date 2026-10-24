@@ -8,9 +8,10 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'services/hub'))
 import citadel_pb2
 import citadel_pb2_grpc
+from switcher.config import hub_target
 
 def status():
-    channel = grpc.insecure_channel('localhost:50051')
+    channel = grpc.insecure_channel(hub_target())
     stub = citadel_pb2_grpc.CitadelServiceStub(channel)
     try:
         response = stub.GetCurrentState(citadel_pb2.StateRequest())
@@ -23,17 +24,19 @@ def status():
         print(f"Error connecting to Hub: {e.details()}")
 
 def set_profile(name):
-    channel = grpc.insecure_channel('localhost:50051')
+    channel = grpc.insecure_channel(hub_target())
     stub = citadel_pb2_grpc.CitadelServiceStub(channel)
     try:
         req = citadel_pb2.SetProfileRequest(profile_name=name)
-        response = stub.SetProfile(req)
+        response = stub.SetProfile(req, timeout=180)
         print(f"Result: {response.message}")
+        if not response.success and response.output:
+            print(response.output)
     except grpc.RpcError as e:
         print(f"Error connecting to Hub: {e.details()}")
 
 def monitor():
-    channel = grpc.insecure_channel('localhost:50051')
+    channel = grpc.insecure_channel(hub_target())
     stub = citadel_pb2_grpc.CitadelServiceStub(channel)
     try:
         print("Monitoring Telemetry Stream (Press Ctrl+C to stop)...")

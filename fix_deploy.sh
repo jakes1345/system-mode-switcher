@@ -30,17 +30,16 @@ sleep 2
 echo "  ✅ Hub restarted."
 echo ""
 
-# ── Step 4: Verify single port listener ──
-echo "[4/5] Verifying port 50051..."
-LISTENERS=$(ss -tlnp 'sport = :50051' | grep -c LISTEN)
-if [ "$LISTENERS" -eq 1 ]; then
-    echo "  ✅ Exactly 1 listener on port 50051 — CORRECT"
-elif [ "$LISTENERS" -gt 1 ]; then
-    echo "  ❌ WARNING: $LISTENERS listeners detected — there may be a stale process"
-    echo "     Run: ss -tlnp | grep 50051"
+# ── Step 4: Verify the hub socket ──
+echo "[4/5] Verifying /run/citadel/hub.sock..."
+if [ -S /run/citadel/hub.sock ]; then
+    echo "  ✅ Hub socket present: $(stat -c '%U %a' /run/citadel/hub.sock)"
 else
-    echo "  ❌ WARNING: No listener on port 50051 — hub may have failed to start"
+    echo "  ❌ WARNING: No hub socket — hub may have failed to start"
     echo "     Run: systemctl status citadel-hub.service"
+fi
+if ss -tln 'sport = :50051' | grep -q LISTEN; then
+    echo "  ❌ WARNING: something still listens on TCP 50051 (old hub?)"
 fi
 echo ""
 

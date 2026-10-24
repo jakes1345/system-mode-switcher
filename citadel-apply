@@ -1,18 +1,30 @@
 #!/bin/bash
 # 🏰 OBSIDIAN CITADEL — APPLY WRAPPER
-# This script is invoked by pkexec to run the generated configuration script as root.
+# Invoked via pkexec (the polkit policy requires admin authentication) to run a
+# generated configuration script as root.
+set -euo pipefail
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+umask 077
 
-if [ -z "$1" ]; then
-    echo "Error: No script path provided."
-    exit 1
-fi
+die() { echo "citadel-apply: $*" >&2; exit 1; }
 
-SCRIPT_PATH="$1"
+[ "$(id -u)" -eq 0 ] || die "must run as root (via pkexec)"
+[ $# -eq 1 ] || die "usage: citadel-apply <script.sh>"
+SRC="$1"
 
-if [ ! -f "$SCRIPT_PATH" ]; then
-    echo "Error: Script not found at $SCRIPT_PATH"
-    exit 1
-fi
+# Only a plain file owned by the user who authenticated (or by root).
+{ [ -f "$SRC" ] && [ ! -L "$SRC" ]; } || die "not a regular file: $SRC"
+CALLER="${PKEXEC_UID:-${SUDO_UID:-0}}"
+OWNER=$(stat -c %u -- "$SRC")
+{ [ "$OWNER" = "$CALLER" ] || [ "$OWNER" = 0 ]; } || die "script must be owned by the calling user"
+[ "$(stat -c %s -- "$SRC")" -le 1048576 ] || die "script too large"
 
-# Execute the generated bash script
-exec bash "$SCRIPT_PATH"
+# Run a root-owned private copy, so the file can't be swapped after the checks.
+WORK=$(mktemp -d /run/citadel-apply.XXXXXX)
+trap 'rm -rf "$WORK"' EXIT
+cp -P -- "$SRC" "$WORK/apply.sh"
+{ [ -f "$WORK/apply.sh" ] && [ ! -L "$WORK/apply.sh" ]; } || die "script changed during checks"
+[ "$(head -n 1 "$WORK/apply.sh")" = "#!/bin/bash" ] || die "not a Citadel apply script"
+
+bash "$WORK/apply.sh"

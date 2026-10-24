@@ -91,12 +91,12 @@ gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
 # Security & Services
 echo "[4/5] Deploying Polkit policy & Citadel control plane..."
 mkdir -p /usr/share/polkit-1/actions/
-cp "$SCRIPT_DIR/internal/security/com.obsidian.citadel.policy" /usr/share/polkit-1/actions/ 2>/dev/null || true
-cp "$SCRIPT_DIR/citadel-apply" /usr/local/bin/citadel-apply
-chmod 755 /usr/local/bin/citadel-apply
+install -m 644 -o root -g root "$SCRIPT_DIR/internal/security/com.obsidian.citadel.policy" /usr/share/polkit-1/actions/
+install -m 755 -o root -g root "$SCRIPT_DIR/citadel-apply" /usr/local/bin/citadel-apply
 
 cp "$SCRIPT_DIR/internal/systemd/citadel-hub.service" /etc/systemd/system/ 2>/dev/null || true
-sed -i "s|CITADEL_CONFIG=.*\"|CITADEL_CONFIG=$REAL_HOME/obsidian-citadel.toml\"|" /etc/systemd/system/citadel-hub.service 2>/dev/null || true
+sed -i -e "s|CITADEL_CONFIG=.*\"|CITADEL_CONFIG=$REAL_HOME/obsidian-citadel.toml\"|" \
+       -e "s|CITADEL_USER=.*\"|CITADEL_USER=$REAL_USER\"|" /etc/systemd/system/citadel-hub.service 2>/dev/null || true
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable citadel-hub.service 2>/dev/null || true
 systemctl restart citadel-hub.service 2>/dev/null || true

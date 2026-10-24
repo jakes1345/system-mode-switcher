@@ -6,11 +6,10 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 echo "🛡️ Deploying Obsidian Citadel Security Policy..."
-sudo cp "$PROJECT_ROOT/internal/security/com.obsidian.citadel.policy" /usr/share/polkit-1/actions/
+sudo install -m 644 -o root -g root "$PROJECT_ROOT/internal/security/com.obsidian.citadel.policy" /usr/share/polkit-1/actions/
 
 echo "🔒 Installing PolicyKit wrapper..."
-sudo cp "$PROJECT_ROOT/citadel-apply" /usr/local/bin/citadel-apply
-sudo chmod 755 /usr/local/bin/citadel-apply
+sudo install -m 755 -o root -g root "$PROJECT_ROOT/citadel-apply" /usr/local/bin/citadel-apply
 
 echo "🏗️ Installing Citadel Hub Control Plane Service..."
 sudo cp "$PROJECT_ROOT/internal/systemd/citadel-hub.service" /etc/systemd/system/

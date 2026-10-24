@@ -646,8 +646,7 @@ def run_apply_script(script_content: str, sudo_password: str | None = None) -> t
     fd, path = tempfile.mkstemp(prefix="switcher-apply-", suffix=".sh")
     try:
         os.write(fd, script_content.encode())
-        os.close(fd)
-        os.chmod(path, 0o755)
+        os.close(fd)  # mkstemp gives 0600: only we (and root) can read or swap it
 
         if os.geteuid() == 0:
             # We are root (running as systemd OS daemon)

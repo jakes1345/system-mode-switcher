@@ -76,6 +76,16 @@ def default_config_path() -> Path:
     return Path.home() / "obsidian-citadel.toml"
 
 
+def hub_socket_path() -> Path:
+    """Unix socket the hub listens on (root-created, owned by the desktop user)."""
+    return Path(os.environ.get("CITADEL_HUB_SOCKET", "/run/citadel/hub.sock"))
+
+
+def hub_target() -> str:
+    """gRPC target for clients (dashboard, tray, CLI)."""
+    return f"unix://{hub_socket_path()}"
+
+
 # ── Built-in defaults ────────────────────────────────────────────────────
 
 DEFAULT_SERVICES = [

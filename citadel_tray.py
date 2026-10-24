@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ser
 
 import citadel_pb2
 import citadel_pb2_grpc
-from switcher.config import load_config
+from switcher.config import hub_target, load_config
 from gi.repository import GLib
 
 class CitadelTrayApp:
@@ -24,7 +24,7 @@ class CitadelTrayApp:
         self.active_profile = ""
         
         # Connect to gRPC Daemon
-        channel = grpc.insecure_channel('localhost:50051')
+        channel = grpc.insecure_channel(hub_target())
         self.stub = citadel_pb2_grpc.CitadelServiceStub(channel)
 
         # Use absolute path directly — bypasses AppIndicator's theme-name cache

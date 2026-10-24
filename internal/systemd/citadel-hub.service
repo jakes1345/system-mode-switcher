@@ -8,8 +8,14 @@ User=root
 ExecStart=/usr/bin/python3 /home/jack/system-mode-switcher/services/hub/main.py
 WorkingDirectory=/home/jack/system-mode-switcher
 Environment="PYTHONPATH=/home/jack/.local/lib/python3.12/site-packages:/home/jack/system-mode-switcher"
-# The desktop user's config — the same file the dashboard saves profiles to
+# The desktop user's config — the same file the dashboard saves profiles to.
+# Only profile values are read from it; commands come from the root-owned
+# /etc/obsidian-citadel/citadel.toml (or built-in defaults).
 Environment="CITADEL_CONFIG=/home/jack/obsidian-citadel.toml"
+# Only this user (and root) may connect to /run/citadel/hub.sock
+Environment="CITADEL_USER=jack"
+RuntimeDirectory=citadel
+RuntimeDirectoryMode=0755
 Restart=always
 RestartSec=5
 

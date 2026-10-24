@@ -15,7 +15,7 @@ gi.require_version("Notify", "0.7")
 from gi.repository import Gdk, GLib, Gtk, Notify
 
 from switcher import backend
-from switcher.config import Config, ProfileConfig, TweakConfig, save_config
+from switcher.config import Config, ProfileConfig, TweakConfig, hub_target, save_config
 from switcher.ui.dialogs import (
     confirm_apply_dialog,
     confirm_delete_dialog,
@@ -434,7 +434,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             overrides.gpu_power_limit = desired["gpu_pl"]
 
         try:
-            channel = grpc.insecure_channel('localhost:50051')
+            channel = grpc.insecure_channel(hub_target())
             stub = citadel_pb2_grpc.CitadelServiceStub(channel)
             req = citadel_pb2.SetProfileRequest(profile_name=profile_name, overrides=overrides)
             # The hub returns only after the apply script has finished
@@ -602,7 +602,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             while True:
                 channel = None
                 try:
-                    channel = grpc.insecure_channel('localhost:50051')
+                    channel = grpc.insecure_channel(hub_target())
                     stub = citadel_pb2_grpc.CitadelServiceStub(channel)
                     req = citadel_pb2.TelemetryRequest(interval_ms=1000)
                     for pulse in stub.StreamTelemetry(req):
