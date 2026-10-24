@@ -20,12 +20,27 @@ service CitadelService {
 message SetProfileRequest {
   string profile_name = 1;
   bool force = 2;
+  // Optional: the dashboard's current switch state, layered over the named
+  // profile. Only services/processes known to the hub's config are honoured.
+  DesiredState overrides = 3;
+}
+
+message DesiredState {
+  map<string, bool> services = 1;
+  map<string, bool> processes = 2;
+  optional int32 swappiness = 3;
+  optional bool compositor_unredirect = 4;
+  optional bool gpu_performance = 5;
+  optional string cpu_governor = 6;
+  optional int32 gpu_power_limit = 7;
+  optional string thp_mode = 8;
 }
 
 message ProfileResponse {
   bool success = 1;
   string message = 2;
   google.protobuf.Timestamp applied_at = 3;
+  string output = 4;  // apply script output (tail)
 }
 
 message StateRequest {}

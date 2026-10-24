@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,8 +23,10 @@ class ProcessConfig:
     id: str            # unique identifier
     display: str       # human-readable label
     description: str   # short description
-    grep: str          # pattern for pgrep -f
+    grep: str          # regex matched against process cmdlines (or container names for "compose")
     start_cmd: str     # shell command to launch
+    stop_cmd: str = ""      # shell command to stop; empty = kill matching processes/containers
+    kind: str = "process"   # "process" (host process) or "compose" (Docker containers)
 
 
 @dataclass
@@ -59,8 +63,17 @@ class Config:
     services: list[ServiceConfig] = field(default_factory=list)
     processes: list[ProcessConfig] = field(default_factory=list)
     profiles: dict[str, ProfileConfig] = field(default_factory=dict)
-    config_path: Path = field(default_factory=lambda: Path.home() / "obsidian-citadel.toml")
+    config_path: Path = field(default_factory=lambda: default_config_path())
     load_error: str | None = None
+
+
+def default_config_path() -> Path:
+    """Config location. The root hub has no useful $HOME, so it is pointed at the
+    desktop user's file via CITADEL_CONFIG (set in citadel-hub.service)."""
+    env = os.environ.get("CITADEL_CONFIG")
+    if env:
+        return Path(env)
+    return Path.home() / "obsidian-citadel.toml"
 
 
 # ── Built-in defaults ────────────────────────────────────────────────────
@@ -100,14 +113,18 @@ DEFAULT_PROCESSES = [
                   "python3 -m shadowcypher.core.hub"),
     ProcessConfig("friday-hands", "Friday Hands", "AI agent execution server", "friday_hands|8102",
                   "systemctl start friday-hands 2>/dev/null || true"),
-    ProcessConfig("compose-friday-ai", "Friday AI Stack", "Open WebUI + Brain + Qdrant (Docker)", "friday-webui|friday-brain",
-                  "docker compose -f '/media/jack/New Volume/FRIDAY_AI/docker-compose.yml' up -d"),
+    ProcessConfig("compose-friday-ai", "Friday AI Stack", "Open WebUI + Brain + Qdrant (Docker)", "friday-webui|friday-brain|friday-qdrant",
+                  "docker compose -f '/media/jack/New Volume/FRIDAY_AI/docker-compose.yml' up -d",
+                  "docker compose -f '/media/jack/New Volume/FRIDAY_AI/docker-compose.yml' stop", "compose"),
     ProcessConfig("compose-poi", "POI OSINT Stack", "Search & OSINT stack (Docker)", "poi-api|poi-worker|poi-beat",
-                  "docker compose -f '/media/jack/New Volume/POI/docker-compose.yml' up -d 2>/dev/null || docker compose -f '/home/jack/POI/docker-compose.yml' up -d"),
+                  "docker compose -f '/media/jack/New Volume/POI/docker-compose.yml' up -d 2>/dev/null || docker compose -f '/home/jack/POI/docker-compose.yml' up -d",
+                  "docker compose -f '/media/jack/New Volume/POI/docker-compose.yml' stop 2>/dev/null || docker compose -f '/home/jack/POI/docker-compose.yml' stop", "compose"),
     ProcessConfig("compose-battleground", "Battleground Lab", "OWASP Juice Shop lab (Docker)", "battleground-juice-shop",
-                  "docker compose -f '/home/jack/ShadowCypher/shadowcypher/battleground/docker-compose.yml' up -d"),
-    ProcessConfig("compose-plandex", "Plandex AI Stack", "Plandex AI Postgres DB (Docker)", "app-plandex-postgres",
-                  "docker compose -f '/home/jack/plandex-cli-v2.2.1/app/docker-compose.yml' up -d"),
+                  "docker compose -f '/home/jack/ShadowCypher/shadowcypher/battleground/docker-compose.yml' up -d",
+                  "docker compose -f '/home/jack/ShadowCypher/shadowcypher/battleground/docker-compose.yml' stop", "compose"),
+    ProcessConfig("compose-plandex", "Plandex AI Stack", "Plandex AI Postgres DB (Docker)", "plandex-postgres",
+                  "docker compose -f '/home/jack/plandex-cli-v2.2.1/app/docker-compose.yml' up -d",
+                  "docker compose -f '/home/jack/plandex-cli-v2.2.1/app/docker-compose.yml' stop", "compose"),
 ]
 
 _ALL_OFF = {s.name: False for s in DEFAULT_SERVICES}
@@ -312,7 +329,7 @@ DEFAULT_PROFILES: dict[str, ProfileConfig] = {
 
 def load_config(path: Path | None = None) -> Config:
     """Load config from TOML. Returns defaults on missing/malformed file."""
-    config_path = path or Path.home() / "obsidian-citadel.toml"
+    config_path = path or default_config_path()
     config = Config(
         services=list(DEFAULT_SERVICES),
         processes=list(DEFAULT_PROCESSES),
@@ -354,12 +371,15 @@ def load_config(path: Path | None = None) -> Config:
     if raw_processes:
         config.processes = []
         for p in raw_processes:
+            proc_id = p.get("id", "unknown")
             config.processes.append(ProcessConfig(
-                id=p.get("id", "unknown"),
+                id=proc_id,
                 display=p.get("display", p.get("id", "Unknown")),
                 description=p.get("description", ""),
                 grep=p.get("grep", p.get("id", "")),
                 start_cmd=p.get("start_cmd", ""),
+                stop_cmd=p.get("stop_cmd", ""),
+                kind=p.get("kind", "compose" if proc_id.startswith("compose-") else "process"),
             ))
 
     # Parse profiles
@@ -396,8 +416,14 @@ def load_config(path: Path | None = None) -> Config:
     return config
 
 
+def _toml_str(value: str) -> str:
+    """Quote a string as a TOML basic string (JSON escapes are valid TOML)."""
+    return json.dumps(value, ensure_ascii=False)
+
+
 def save_config(config: Config) -> None:
     """Write current config back to TOML."""
+    q = _toml_str
     lines: list[str] = [
         "# Obsidian Citadel — Configuration",
         "# Auto-generated. Edit with care.",
@@ -406,52 +432,54 @@ def save_config(config: Config) -> None:
 
     for svc in config.services:
         lines.append("[[service]]")
-        lines.append(f'name = "{svc.name}"')
-        lines.append(f'display = "{svc.display}"')
-        lines.append(f'description = "{svc.description}"')
-        lines.append(f'category = "{svc.category}"')
+        lines.append(f"name = {q(svc.name)}")
+        lines.append(f"display = {q(svc.display)}")
+        lines.append(f"description = {q(svc.description)}")
+        lines.append(f"category = {q(svc.category)}")
         lines.append("")
 
     for proc in config.processes:
         lines.append("[[process]]")
-        lines.append(f'id = "{proc.id}"')
-        lines.append(f'display = "{proc.display}"')
-        lines.append(f'description = "{proc.description}"')
-        lines.append(f'grep = "{proc.grep}"')
-        lines.append(f'start_cmd = "{proc.start_cmd}"')
+        lines.append(f"id = {q(proc.id)}")
+        lines.append(f"display = {q(proc.display)}")
+        lines.append(f"description = {q(proc.description)}")
+        lines.append(f"grep = {q(proc.grep)}")
+        lines.append(f"start_cmd = {q(proc.start_cmd)}")
+        if proc.stop_cmd:
+            lines.append(f"stop_cmd = {q(proc.stop_cmd)}")
+        lines.append(f"kind = {q(proc.kind)}")
         lines.append("")
 
     for name, prof in config.profiles.items():
-        qname = f'"{name}"'
+        qname = q(name)
         lines.append(f"[profile.{qname}]")
-        lines.append(f'description = "{prof.description}"')
-        lines.append(f'color = "{prof.color}"')
-        lines.append(f'icon = "{prof.icon}"')
+        lines.append(f"description = {q(prof.description)}")
+        lines.append(f"color = {q(prof.color)}")
+        lines.append(f"icon = {q(prof.icon)}")
         if prof.activation_message:
-            # Escape newlines for TOML single-line string
-            lines.append(f'activation_message = "{prof.activation_message.replace(chr(10), "\\n")}"')
+            lines.append(f"activation_message = {q(prof.activation_message)}")
         if prof.builtin:
             lines.append("builtin = true")
         lines.append("")
 
         lines.append(f"[profile.{qname}.services]")
         for svc_name, val in prof.services.items():
-            lines.append(f'"{svc_name}" = {"true" if val else "false"}')
+            lines.append(f'{q(svc_name)} = {"true" if val else "false"}')
         lines.append("")
 
         lines.append(f"[profile.{qname}.processes]")
         for proc_id, val in prof.processes.items():
-            lines.append(f'"{proc_id}" = {"true" if val else "false"}')
+            lines.append(f'{q(proc_id)} = {"true" if val else "false"}')
         lines.append("")
 
         lines.append(f"[profile.{qname}.tweaks]")
         lines.append(f"swappiness = {prof.tweaks.swappiness}")
         lines.append(f'compositor_unredirect = {"true" if prof.tweaks.compositor_unredirect else "false"}')
         lines.append(f'gpu_performance = {"true" if prof.tweaks.gpu_performance else "false"}')
-        lines.append(f'cpu_governor = "{prof.tweaks.cpu_governor}"')
+        lines.append(f"cpu_governor = {q(prof.tweaks.cpu_governor)}")
         if prof.tweaks.gpu_power_limit is not None:
             lines.append(f"gpu_power_limit = {prof.tweaks.gpu_power_limit}")
-        lines.append(f'thp_mode = "{prof.tweaks.thp_mode}"')
+        lines.append(f"thp_mode = {q(prof.tweaks.thp_mode)}")
         lines.append(f'stealth_mode = {"true" if prof.tweaks.stealth_mode else "false"}')
         lines.append(f'gaming_audio = {"true" if prof.tweaks.gaming_audio else "false"}')
         lines.append(f'cpu_shielding = {"true" if prof.tweaks.cpu_shielding else "false"}')

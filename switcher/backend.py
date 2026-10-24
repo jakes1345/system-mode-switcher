@@ -6,6 +6,8 @@ No GTK imports. All functions are safe to call from any thread.
 from __future__ import annotations
 
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -15,6 +17,8 @@ from pathlib import Path
 import time
 import types
 import psutil
+
+from switcher.config import ProcessConfig
 
 from switcher.plugins.phase1_bootloader import Phase1Bootloader
 from switcher.plugins.phase2_kernel_silicon import Phase2KernelSilicon
@@ -232,21 +236,85 @@ def is_service_frozen(name: str) -> bool:
     except (subprocess.TimeoutExpired, OSError):
         return False
 
-def is_process_running(grep_pattern: str) -> bool:
-    """Check if a process matching the grep pattern is running."""
+_CONTAINER_CGROUP_MARKERS = ("docker", "containerd", "libpod")
+
+
+def _compile_pattern(pattern: str) -> re.Pattern:
     try:
-        r = subprocess.run(
-            ["pgrep", "-f", grep_pattern],
-            capture_output=True, text=True, timeout=5,
-        )
-        return r.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
+        return re.compile(pattern)
+    except re.error:
+        return re.compile(re.escape(pattern))
+
+
+def _is_containerised(pid: int) -> bool:
+    try:
+        cgroup = Path(f"/proc/{pid}/cgroup").read_text()
+    except OSError:
         return False
+    return any(marker in cgroup for marker in _CONTAINER_CGROUP_MARKERS)
+
+
+def find_process_pids(pattern: str) -> list[int]:
+    """Host PIDs whose cmdline matches `pattern` (like pgrep -f), skipping ourselves
+    and anything inside a container — Docker restarts those, so killing them loops."""
+    rx = _compile_pattern(pattern)
+    me = os.getpid()
+    pids = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit() or int(entry.name) == me:
+            continue
+        try:
+            raw = (entry / "cmdline").read_bytes()
+        except OSError:
+            continue
+        if not raw:
+            continue  # kernel thread
+        cmdline = raw.replace(b"\0", b" ").decode(errors="replace").strip()
+        if rx.search(cmdline) and not _is_containerised(int(entry.name)):
+            pids.append(int(entry.name))
+    return pids
+
+
+def get_running_containers() -> set[str]:
+    """Names of running Docker containers.
+
+    Checks docker.service first: a bare `docker ps` would socket-activate a Docker
+    that the active profile wants stopped.
+    """
+    try:
+        r = subprocess.run(["systemctl", "is-active", "docker.service"],
+                           capture_output=True, text=True, timeout=5)
+        if r.stdout.strip() != "active":
+            return set()
+        r = subprocess.run(["docker", "ps", "--format", "{{.Names}}"],
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode != 0:
+            return set()
+        return {line.strip() for line in r.stdout.splitlines() if line.strip()}
+    except (subprocess.TimeoutExpired, OSError):
+        return set()
+
+
+def is_process_running(grep_pattern: str, kind: str = "process") -> bool:
+    """Check if a managed process is running.
+
+    Container names never appear in host cmdlines, so compose stacks are matched
+    against `docker ps` names instead of pgrep.
+    """
+    if kind == "compose":
+        rx = _compile_pattern(grep_pattern)
+        return any(rx.search(name) for name in get_running_containers())
+    return bool(find_process_pids(grep_pattern))
+
+
+def _cryo_cgroup(proc_id: str) -> str:
+    return "/sys/fs/cgroup/citadel_cryo_" + re.sub(r"[^A-Za-z0-9_.-]", "_", proc_id)
+
 
 def is_process_frozen(proc_id: str) -> bool:
     """Check if a raw process is frozen in its custom Citadel Cryo cgroup."""
     try:
-        events = Path(f"/sys/fs/cgroup/citadel_cryo_{proc_id}/cgroup.events")
+        events = Path(_cryo_cgroup(proc_id)) / "cgroup.events"
         if events.exists():
             return "frozen 1" in events.read_text()
     except OSError:
@@ -405,16 +473,52 @@ def get_hardware_report() -> str:
 
 # ── Enhanced Apply Logic ──────────────────────────────────────────────────
 
+_SCRIPT_PRELUDE = r"""
+# No `set -e`: every step runs. Failures of the steps that matter are counted
+# and turned into a non-zero exit so the caller gets a real result.
+CITADEL_FAILURES=0
+citadel_fail() { echo "FAILED: $*" >&2; CITADEL_FAILURES=$((CITADEL_FAILURES + 1)); }
+
+# pgrep -f minus processes living inside containers (Docker restarts those).
+citadel_pids() {
+    local pid
+    for pid in $(pgrep -f -- "$1" 2>/dev/null); do
+        grep -qsE 'docker|containerd|libpod' "/proc/$pid/cgroup" || echo "$pid"
+    done
+}
+
+# Units that can wake a service back up: sockets, paths, timers.
+citadel_triggers() { systemctl show -p TriggeredBy --value "$1" 2>/dev/null; }
+
+# Stop a service and keep it stopped: stop its triggers and mask it for this boot
+# so socket, D-Bus and dependency activation can't bring it straight back.
+citadel_stop_unit() {
+    local t
+    for t in $(citadel_triggers "$1"); do systemctl stop "$t" 2>/dev/null || true; done
+    systemctl mask --runtime "$1" >/dev/null 2>&1 || true
+    systemctl stop "$1" || citadel_fail "stop $1"
+}
+
+citadel_start_unit() {
+    local t
+    systemctl unmask --runtime "$1" >/dev/null 2>&1 || true
+    systemctl thaw "$1" 2>/dev/null || true
+    for t in $(citadel_triggers "$1"); do systemctl start "$t" 2>/dev/null || true; done
+    systemctl start "$1" || citadel_fail "start $1"
+}
+"""
+
+
 def build_apply_script(
     services_to_start: list[str],
     services_to_stop: list[str],
     services_to_freeze: list[str],
-    processes_to_start: list[tuple[str, str]],
-    processes_to_kill: list[tuple[str, str]],
-    processes_to_freeze: list[tuple[str, str]],
-    swappiness: int | None,
-    compositor_unredirect: bool | None,
-    gpu_performance: bool | None,
+    processes_to_start: list[ProcessConfig],
+    processes_to_kill: list[ProcessConfig],
+    processes_to_freeze: list[ProcessConfig],
+    swappiness: int | None = None,
+    compositor_unredirect: bool | None = None,
+    gpu_performance: bool | None = None,
     cpu_governor: str | None = "performance",
     gpu_power_limit: int | None = None,
     thp_mode: str | None = "madvise",
@@ -424,95 +528,115 @@ def build_apply_script(
     wipe_ram: bool = False,
     dirty_ratio: int = 20,
     dirty_background_ratio: int = 10,
+    run_plugins: bool = True,
+    services_to_unmask: list[str] | None = None,
 ) -> str:
-    """Build a hardened bash script for hardware-level orchestration using the Plugin Engine."""
-    lines = ["#!/bin/bash", "set -e", ""]
-    
+    """Build the root bash script for a profile switch.
+
+    run_plugins=True is a full profile apply (kernel/hardware tweaks + services).
+    run_plugins=False is a drift correction: only the listed services/processes.
+    """
+    q = shlex.quote
+    lines = ["#!/bin/bash", _SCRIPT_PRELUDE]
+
     # ── Environment Ingress ──
     shadow_root = os.environ.get("SHADOW_ROOT", os.path.expanduser("~/ShadowCypher"))
     if os.path.isdir(shadow_root):
-        lines.append(f"export PYTHONPATH=$PYTHONPATH:{shadow_root}")
-        lines.append(f"export SHADOW_ROOT={shadow_root}")
+        lines.append(f"export PYTHONPATH=$PYTHONPATH:{q(shadow_root)}")
+        lines.append(f"export SHADOW_ROOT={q(shadow_root)}")
         lines.append("")
 
-    # Wrap arguments into a config object for the plugins
-    config = types.SimpleNamespace(
-        services_to_start=services_to_start,
-        services_to_stop=services_to_stop,
-        services_to_freeze=services_to_freeze,
-        processes_to_start=processes_to_start,
-        processes_to_kill=processes_to_kill,
-        processes_to_freeze=processes_to_freeze,
-        swappiness=swappiness,
-        compositor_unredirect=compositor_unredirect,
-        gpu_performance=gpu_performance,
-        cpu_governor=cpu_governor,
-        gpu_power_limit=gpu_power_limit,
-        thp_mode=thp_mode,
-        stealth_mode=stealth_mode,
-        gaming_audio=gaming_audio,
-        cpu_shielding=cpu_shielding,
-        wipe_ram=wipe_ram,
-        dirty_ratio=dirty_ratio,
-        dirty_background_ratio=dirty_background_ratio
-    )
+    if run_plugins:
+        # Wrap arguments into a config object for the plugins
+        config = types.SimpleNamespace(
+            services_to_start=services_to_start,
+            services_to_stop=services_to_stop,
+            services_to_freeze=services_to_freeze,
+            processes_to_start=processes_to_start,
+            processes_to_kill=processes_to_kill,
+            processes_to_freeze=processes_to_freeze,
+            swappiness=swappiness,
+            compositor_unredirect=compositor_unredirect,
+            gpu_performance=gpu_performance,
+            cpu_governor=cpu_governor,
+            gpu_power_limit=gpu_power_limit,
+            thp_mode=thp_mode,
+            stealth_mode=stealth_mode,
+            gaming_audio=gaming_audio,
+            cpu_shielding=cpu_shielding,
+            wipe_ram=wipe_ram,
+            dirty_ratio=dirty_ratio,
+            dirty_background_ratio=dirty_background_ratio
+        )
 
-    # Instantiate all 10 phases
-    phases = [
-        Phase1Bootloader(config),
-        Phase2KernelSilicon(config),
-        Phase3StorageZfs(config),
-        Phase4WaylandGraphics(config),
-        Phase5RedteamNetwork(config),
-        Phase6HyperOrchestration(config),
-        Phase7UiTelemetry(config),
-        Phase8PackageManager(config),
-        Phase9AutonomousAi(config),
-        Phase10EdgeCases(config)
-    ]
+        phases = [
+            Phase1Bootloader(config),
+            Phase2KernelSilicon(config),
+            Phase3StorageZfs(config),
+            Phase4WaylandGraphics(config),
+            Phase5RedteamNetwork(config),
+            Phase6HyperOrchestration(config),
+            Phase7UiTelemetry(config),
+            Phase8PackageManager(config),
+            Phase9AutonomousAi(config),
+            Phase10EdgeCases(config)
+        ]
 
-    # Run the Plugin Engine
-    lines.append("echo 'CITADEL ORCHESTRATION STARTING...'")
-    for phase in phases:
-        phase.apply(lines)
-        
-    # ── Legacy Process/Service Orchestration (Phase 6 overflow) ───────
-    
-    for svc in services_to_stop:
-        lines.append(f"systemctl stop {svc} 2>/dev/null || true")
-    for svc in services_to_freeze:
-        lines.append(f"systemctl freeze {svc} 2>/dev/null || true")
-    for svc in services_to_start:
-        lines.append(f"systemctl thaw {svc} 2>/dev/null || true")
-        lines.append(f"systemctl start {svc} 2>/dev/null || true")
-        
-    for proc_id, grep_pattern in processes_to_kill:
-        if proc_id == "compose-friday-ai":
-            lines.append("docker compose -f '/media/jack/New Volume/FRIDAY_AI/docker-compose.yml' stop 2>/dev/null || true")
-        elif proc_id == "compose-poi":
-            lines.append("docker compose -f '/media/jack/New Volume/POI/docker-compose.yml' stop 2>/dev/null || docker compose -f '/home/jack/POI/docker-compose.yml' stop 2>/dev/null || true")
-        elif proc_id == "compose-battleground":
-            lines.append("docker compose -f '/home/jack/ShadowCypher/shadowcypher/battleground/docker-compose.yml' stop 2>/dev/null || true")
-        elif proc_id == "compose-plandex":
-            lines.append("docker compose -f '/home/jack/plandex-cli-v2.2.1/app/docker-compose.yml' stop 2>/dev/null || true")
-        lines.append(f"pkill -f '{grep_pattern}' 2>/dev/null || true")
-        lines.append(f"rmdir /sys/fs/cgroup/citadel_cryo_{proc_id} 2>/dev/null || true")
-        
-    for proc_id, grep_pattern in processes_to_freeze:
-        lines.append(f"mkdir -p /sys/fs/cgroup/citadel_cryo_{proc_id}")
-        lines.append(f"for pid in $(pgrep -f '{grep_pattern}' 2>/dev/null); do")
-        lines.append(f"    echo $pid > /sys/fs/cgroup/citadel_cryo_{proc_id}/cgroup.procs 2>/dev/null || true")
+        lines.append("echo 'CITADEL ORCHESTRATION STARTING...'")
+        for phase in phases:
+            phase.apply(lines)
+
+        # Lift runtime masks left by earlier profiles on units this one doesn't stop
+        if services_to_unmask:
+            units = " ".join(q(u) for u in services_to_unmask)
+            lines.append(f"systemctl unmask --runtime {units} >/dev/null 2>&1 || true")
+
+    # ── Process/Service Orchestration ──
+    # Processes go first so compose stacks are stopped while Docker is still up.
+    for proc in processes_to_kill:
+        cryo = _cryo_cgroup(proc.id)
+        lines.append(f"echo 0 > {cryo}/cgroup.freeze 2>/dev/null || true")
+        if proc.stop_cmd:
+            lines.append(f"{{ {proc.stop_cmd}; }} || citadel_fail {q('stop ' + proc.id)}")
+        elif proc.kind == "compose":
+            lines.append(
+                f"docker ps --format '{{{{.Names}}}}' 2>/dev/null | grep -E {q(proc.grep)} "
+                f"| xargs -r docker stop >/dev/null || citadel_fail {q('stop ' + proc.id)}"
+            )
+        else:
+            lines.append(f"citadel_pids {q(proc.grep)} | xargs -r kill 2>/dev/null || true")
+        lines.append(f"rmdir {cryo} 2>/dev/null || true")
+
+    for proc in processes_to_freeze:
+        cryo = _cryo_cgroup(proc.id)
+        lines.append(f"mkdir -p {cryo} || citadel_fail {q('freeze ' + proc.id)}")
+        lines.append(f"for pid in $(citadel_pids {q(proc.grep)}); do")
+        lines.append(f"    echo $pid > {cryo}/cgroup.procs 2>/dev/null || true")
         lines.append("done")
-        lines.append(f"echo 1 > /sys/fs/cgroup/citadel_cryo_{proc_id}/cgroup.freeze 2>/dev/null || true")
-        
-    for proc_id, start_cmd in processes_to_start:
-        lines.append(f"echo 0 > /sys/fs/cgroup/citadel_cryo_{proc_id}/cgroup.freeze 2>/dev/null || true")
-        if start_cmd:
-            check_pattern = proc_id.replace("compose-", "")
-            lines.append(f"if ! pgrep -f '{check_pattern}' >/dev/null 2>&1; then")
-            lines.append(f"    {start_cmd} >/dev/null 2>&1 &")
-            lines.append(f"fi")
+        lines.append(f"echo 1 > {cryo}/cgroup.freeze || citadel_fail {q('freeze ' + proc.id)}")
 
+    for svc in services_to_stop:
+        lines.append(f"citadel_stop_unit {q(svc)}")
+    for svc in services_to_freeze:
+        lines.append(f"systemctl freeze {q(svc)} || citadel_fail {q('freeze ' + svc)}")
+    for svc in services_to_start:
+        lines.append(f"citadel_start_unit {q(svc)}")
+
+    for proc in processes_to_start:
+        lines.append(f"echo 0 > {_cryo_cgroup(proc.id)}/cgroup.freeze 2>/dev/null || true")
+        if not proc.start_cmd:
+            continue
+        if proc.kind == "compose":
+            lines.append(f"{{ {proc.start_cmd}; }} || citadel_fail {q('start ' + proc.id)}")
+        else:
+            lines.append(f"if [ -z \"$(citadel_pids {q(proc.grep)})\" ]; then")
+            lines.append(f"    setsid bash -c {q(proc.start_cmd)} >/dev/null 2>&1 </dev/null &")
+            lines.append("fi")
+
+    lines.append('if [ "$CITADEL_FAILURES" -gt 0 ]; then')
+    lines.append('    echo "RECONCILE_FAILED: $CITADEL_FAILURES step(s) failed"')
+    lines.append("    exit 1")
+    lines.append("fi")
     lines.append('echo "RECONCILE_SUCCESS"')
     return "\n".join(lines)
 

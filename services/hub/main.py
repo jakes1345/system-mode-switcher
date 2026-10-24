@@ -15,21 +15,95 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
+import copy
 from google.protobuf import timestamp_pb2
 from switcher.backend import get_system_vitals_snapshot
 from services.hub.reconciler import CitadelReconciler
-from switcher.config import load_config
+from switcher.config import ProfileConfig, default_config_path, load_config
+from switcher.core.logger import logger
+
+VALID_GOVERNORS = {"performance", "powersave", "schedutil", "ondemand", "conservative"}
+VALID_THP = {"always", "madvise", "never"}
+
 
 class CitadelController:
     """The 'Brain' — Reconciles Desired State vs Actual State."""
     def __init__(self):
-        self.desired_profile = None  # No profile enforced until explicitly set via SetProfile
-        self._lock = asyncio.Lock()
-        
-        # Load config and start reconciler
-        self.config = load_config()
+        # The hub runs as root; CITADEL_CONFIG points it at the desktop user's file
+        self.config_path = default_config_path()
+        self._config_mtime = None
+        self.config = load_config(self.config_path)
+        self._config_mtime = self._mtime()
+        logger.info("Hub", f"Loaded config from {self.config_path}")
         self.reconciler = CitadelReconciler(self.config)
-        self.reconciler.active_profile_name = self.desired_profile
+
+    def _mtime(self):
+        try:
+            return self.config_path.stat().st_mtime
+        except OSError:
+            return None
+
+    def reload_config_if_changed(self) -> None:
+        """Pick up profiles/processes the dashboard saved since the last load."""
+        mtime = self._mtime()
+        if mtime == self._config_mtime:
+            return
+        fresh = load_config(self.config_path)
+        if fresh.load_error:
+            logger.error("Hub", f"Keeping previous config: {fresh.load_error}")
+            return
+        self.config = fresh
+        self._config_mtime = mtime
+        self.reconciler.config = fresh
+        logger.info("Hub", f"Reloaded config from {self.config_path}")
+
+    def resolve_profile(self, name: str, overrides) -> tuple[ProfileConfig | None, list[str]]:
+        """Named profile from config with the dashboard's switch state layered on top.
+
+        Overrides are validated: only known services/processes and sane tweak
+        values get through, since they end up in a root shell script.
+        """
+        notes: list[str] = []
+        base = self.config.profiles.get(name)
+        if base is None and overrides is None:
+            return None, [f"Unknown profile '{name}' (config: {self.config_path})"]
+        profile = copy.deepcopy(base) if base else ProfileConfig(name=name or "Custom")
+        if overrides is None:
+            return profile, notes
+
+        known_services = {s.name for s in self.config.services}
+        for svc, on in overrides.services.items():
+            if svc in known_services:
+                profile.services[svc] = on
+            else:
+                notes.append(f"ignored unknown service '{svc}'")
+        known_procs = {p.id for p in self.config.processes}
+        for proc, on in overrides.processes.items():
+            if proc in known_procs:
+                profile.processes[proc] = on
+            else:
+                notes.append(f"ignored unknown process '{proc}'")
+
+        t = profile.tweaks
+        if overrides.HasField("swappiness") and 0 <= overrides.swappiness <= 200:
+            t.swappiness = overrides.swappiness
+        if overrides.HasField("compositor_unredirect"):
+            t.compositor_unredirect = overrides.compositor_unredirect
+        if overrides.HasField("gpu_performance"):
+            t.gpu_performance = overrides.gpu_performance
+        if overrides.HasField("cpu_governor"):
+            if overrides.cpu_governor in VALID_GOVERNORS:
+                t.cpu_governor = overrides.cpu_governor
+            else:
+                notes.append(f"ignored invalid governor '{overrides.cpu_governor}'")
+        if overrides.HasField("gpu_power_limit") and 0 < overrides.gpu_power_limit <= 1000:
+            t.gpu_power_limit = overrides.gpu_power_limit
+        if overrides.HasField("thp_mode"):
+            if overrides.thp_mode in VALID_THP:
+                t.thp_mode = overrides.thp_mode
+            else:
+                notes.append(f"ignored invalid THP mode '{overrides.thp_mode}'")
+        return profile, notes
 
 class CitadelHubService(citadel_pb2_grpc.CitadelServiceServicer):
     """The gRPC Service implementation."""
@@ -37,26 +111,37 @@ class CitadelHubService(citadel_pb2_grpc.CitadelServiceServicer):
         self.controller = controller
 
     async def SetProfile(self, request, context):
-        async with self.controller._lock:
-            self.controller.desired_profile = request.profile_name
-            self.controller.reconciler.active_profile_name = request.profile_name
-        
+        controller = self.controller
+        controller.reload_config_if_changed()
+        overrides = request.overrides if request.HasField("overrides") else None
+        profile, notes = controller.resolve_profile(request.profile_name, overrides)
+
         resp = timestamp_pb2.Timestamp()
         resp.FromSeconds(int(time.time()))
+        if profile is None:
+            return citadel_pb2.ProfileResponse(success=False, message="; ".join(notes), applied_at=resp)
+
+        # Runs the apply to completion so the dashboard gets the real result
+        ok, output = await controller.reconciler.set_profile(profile)
+        status = "applied — reconciler enforcing state" if ok else "FAILED to apply"
+        message = f"Profile '{profile.name}' {status}."
+        if notes:
+            message += " (" + "; ".join(notes) + ")"
         return citadel_pb2.ProfileResponse(
-            success=True,
-            message=f"Profile '{request.profile_name}' activated — reconciler enforcing state.",
-            applied_at=resp
+            success=ok,
+            message=message,
+            applied_at=resp,
+            output=output[-4000:],
         )
-        
+
     async def GetCurrentState(self, request, context):
         from switcher.backend import is_service_active
         import psutil
         
         active_svcs = {}
-        profile_name = self.controller.reconciler.active_profile_name or ""
-        if profile_name in self.controller.config.profiles:
-            prof = self.controller.config.profiles[profile_name]
+        prof = self.controller.reconciler.desired
+        profile_name = prof.name if prof else ""
+        if prof:
             for svc in prof.services:
                 active_svcs[svc] = await asyncio.to_thread(is_service_active, svc)
                 

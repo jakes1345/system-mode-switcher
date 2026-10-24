@@ -8,6 +8,8 @@ User=root
 ExecStart=/usr/bin/python3 /home/jack/system-mode-switcher/services/hub/main.py
 WorkingDirectory=/home/jack/system-mode-switcher
 Environment="PYTHONPATH=/home/jack/.local/lib/python3.12/site-packages:/home/jack/system-mode-switcher"
+# The desktop user's config — the same file the dashboard saves profiles to
+Environment="CITADEL_CONFIG=/home/jack/obsidian-citadel.toml"
 Restart=always
 RestartSec=5
 

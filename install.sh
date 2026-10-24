@@ -96,6 +96,7 @@ cp "$SCRIPT_DIR/citadel-apply" /usr/local/bin/citadel-apply
 chmod 755 /usr/local/bin/citadel-apply
 
 cp "$SCRIPT_DIR/internal/systemd/citadel-hub.service" /etc/systemd/system/ 2>/dev/null || true
+sed -i "s|CITADEL_CONFIG=.*\"|CITADEL_CONFIG=$REAL_HOME/obsidian-citadel.toml\"|" /etc/systemd/system/citadel-hub.service 2>/dev/null || true
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable citadel-hub.service 2>/dev/null || true
 systemctl restart citadel-hub.service 2>/dev/null || true
