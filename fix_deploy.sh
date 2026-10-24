@@ -1,6 +1,6 @@
 #!/bin/bash
 # 🛡️ OBSIDIAN CITADEL — FIX DEPLOY SCRIPT
-# Run this with: sudo bash /home/jack/system-mode-switcher/fix_deploy.sh
+# Run this with: sudo bash ./fix_deploy.sh
 set -e
 
 echo "═══════════════════════════════════════════════════════════════"
@@ -16,10 +16,10 @@ rm -f /etc/systemd/system/obsidian-citadel.service
 echo "  ✅ Duplicate service removed."
 echo ""
 
-# ── Step 2: Deploy the fixed citadel-hub.service ──
-echo "[2/5] Installing fixed 'citadel-hub.service'..."
-cp /home/jack/system-mode-switcher/internal/systemd/citadel-hub.service /etc/systemd/system/citadel-hub.service
-echo "  ✅ Service file updated."
+# ── Step 2: Deploy the hub (root-owned copy in /opt + unit) ──
+echo "[2/5] Installing hub to /opt/obsidian-citadel via install.sh..."
+bash "$(cd "$(dirname "$0")" && pwd)/install.sh"
+echo "  ✅ Hub and service file updated."
 echo ""
 
 # ── Step 3: Reload systemd and restart ──

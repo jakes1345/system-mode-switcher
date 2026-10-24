@@ -433,5 +433,30 @@ class TestPrivilegeBoundary(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("must run as root", r.stderr)
 
+
+class TestRootOwnedDeployment(unittest.TestCase):
+
+    def _unit(self) -> dict:
+        lines = (pkg_dir / "internal/systemd/citadel-hub.service").read_text().splitlines()
+        return {k: v for k, _, v in (l.partition("=") for l in lines if "=" in l and not l.startswith("#"))}
+
+    def test_unit_runs_root_owned_copy_isolated(self):
+        unit = self._unit()
+        self.assertTrue(unit["ExecStart"].startswith("/opt/obsidian-citadel/venv/bin/python -I "))
+        self.assertEqual(unit["WorkingDirectory"], "/opt/obsidian-citadel")
+        text = (pkg_dir / "internal/systemd/citadel-hub.service").read_text()
+        self.assertNotIn("PYTHONPATH", text)
+        self.assertNotIn(".local", text)
+        self.assertNotIn("/home/jack/system-mode-switcher", text)
+
+    def test_requirements_match_generated_stubs(self):
+        import re
+        stub = (pkg_dir / "services/hub/citadel_pb2_grpc.py").read_text()
+        generated = re.search(r"GRPC_GENERATED_VERSION = '([\d.]+)'", stub).group(1)
+        reqs = (pkg_dir / "requirements-hub.txt").read_text()
+        self.assertIn(f"grpcio>={generated}", reqs)
+        gencode = re.search(r"Protobuf Python Version: ([\d.]+)", (pkg_dir / "services/hub/citadel_pb2.py").read_text()).group(1)
+        self.assertIn(f"protobuf>={gencode}", reqs)
+
 if __name__ == '__main__':
     unittest.main()

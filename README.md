@@ -17,16 +17,20 @@ Obsidian Citadel is designed with a K8s-style reconciler architecture:
 3. **The UI**: A beautiful, unprivileged GTK3 dashboard that talks to the Hub over gRPC.
 
 ## 🚀 Installation
-Run the deployment script to harden the application and install the systemd unit.
 ```bash
 sudo ./install.sh
-sudo ./deploy_citadel.sh
 ```
+This copies the app to `/opt/obsidian-citadel` (root-owned, with its own venv for
+grpcio/protobuf/psutil), installs the PolicyKit policy and `citadel-hub.service`,
+and restarts the hub. The hub runs that copy, not your checkout — re-run the
+installer after changing the source. Hub logs: `/var/log/obsidian-citadel/citadel.log`.
 
 ## 🛠️ Modifying Profiles
 Edit `~/obsidian-citadel.toml` or use the GTK Dashboard to tweak your profiles.
 
 ## 🔐 Security Model
+- The Hub runs as root from the root-owned `/opt/obsidian-citadel` in Python
+  isolated mode (`-I`), so no user-writable code or packages are imported.
 - The Hub listens only on the unix socket `/run/citadel/hub.sock`, owned by the
   desktop user named in `CITADEL_USER` (mode `0600`). There is no TCP port.
 - The Hub reads **profile values only** from your `~/obsidian-citadel.toml`

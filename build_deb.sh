@@ -31,6 +31,8 @@ cp -r "$SCRIPT_DIR/internal" "$PKG_ROOT/opt/obsidian-citadel/" 2>/dev/null || tr
 cp "$SCRIPT_DIR/main.py" "$PKG_ROOT/opt/obsidian-citadel/"
 cp "$SCRIPT_DIR/citadel_cli.py" "$PKG_ROOT/opt/obsidian-citadel/" 2>/dev/null || true
 cp "$SCRIPT_DIR/citadel_tray.py" "$PKG_ROOT/opt/obsidian-citadel/" 2>/dev/null || true
+cp "$SCRIPT_DIR/requirements-hub.txt" "$PKG_ROOT/opt/obsidian-citadel/"
+find "$PKG_ROOT/opt/obsidian-citadel" -name __pycache__ -prune -exec rm -rf {} +
 
 # Copy Systemd, Polkit, and Executables
 echo "[2/5] Copying system services and security wrappers..."
@@ -42,19 +44,19 @@ chmod 755 "$PKG_ROOT/usr/local/bin/citadel-apply"
 # CLI wrappers in /usr/bin/
 cat << 'EOF' > "$PKG_ROOT/usr/bin/obsidian-citadel"
 #!/bin/sh
-exec python3 /opt/obsidian-citadel/main.py "$@"
+exec /opt/obsidian-citadel/venv/bin/python /opt/obsidian-citadel/main.py "$@"
 EOF
 chmod 755 "$PKG_ROOT/usr/bin/obsidian-citadel"
 
 cat << 'EOF' > "$PKG_ROOT/usr/bin/obsidian-citadel-cli"
 #!/bin/sh
-exec python3 /opt/obsidian-citadel/citadel_cli.py "$@"
+exec /opt/obsidian-citadel/venv/bin/python /opt/obsidian-citadel/citadel_cli.py "$@"
 EOF
 chmod 755 "$PKG_ROOT/usr/bin/obsidian-citadel-cli"
 
 cat << 'EOF' > "$PKG_ROOT/usr/bin/obsidian-citadel-tray"
 #!/bin/sh
-exec python3 /opt/obsidian-citadel/citadel_tray.py "$@"
+exec /opt/obsidian-citadel/venv/bin/python /opt/obsidian-citadel/citadel_tray.py "$@"
 EOF
 chmod 755 "$PKG_ROOT/usr/bin/obsidian-citadel-tray"
 
@@ -86,7 +88,7 @@ Section: admin
 Priority: optional
 Architecture: amd64
 Maintainer: Jack <jack@phaze.world>
-Depends: python3, python3-gi, python3-psutil, python3-grpc, python3-pil, gir1.2-gtk-3.0
+Depends: python3 (>= 3.11), python3-venv, python3-gi, python3-pil, gir1.2-gtk-3.0
 Recommends: gir1.2-ayatanaappindicator3-0.1, pipewire, lact
 Description: Enterprise Workstation Mode Switcher & Control Plane
  Obsidian Citadel automatically orchestrates CPU governors, GPU power limits,
@@ -98,6 +100,19 @@ EOF
 cat << 'EOF' > "$PKG_ROOT/DEBIAN/postinst"
 #!/bin/sh
 set -e
+# grpcio/protobuf from distro packages are too old for the generated stubs, so the
+# hub gets its own root-owned venv (see requirements-hub.txt)
+APP=/opt/obsidian-citadel
+[ -x "$APP/venv/bin/python" ] || python3 -m venv --system-site-packages "$APP/venv"
+"$APP/venv/bin/python" -m pip install --disable-pip-version-check --quiet --no-warn-conflicts --ignore-installed -r "$APP/requirements-hub.txt"
+chmod -R go-w "$APP"
+if [ -n "$SUDO_USER" ]; then
+    home=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    sed -i -e "s|CITADEL_CONFIG=.*\"|CITADEL_CONFIG=$home/obsidian-citadel.toml\"|" \
+           -e "s|CITADEL_USER=.*\"|CITADEL_USER=$SUDO_USER\"|" /etc/systemd/system/citadel-hub.service
+else
+    echo "Set CITADEL_USER/CITADEL_CONFIG in /etc/systemd/system/citadel-hub.service for your desktop user."
+fi
 systemctl daemon-reload || true
 systemctl enable citadel-hub.service || true
 systemctl restart citadel-hub.service || true
@@ -106,6 +121,16 @@ gtk-update-icon-cache /usr/share/icons/hicolor/ || true
 echo "🏰 Obsidian Citadel successfully installed and control plane service started."
 EOF
 chmod 755 "$PKG_ROOT/DEBIAN/postinst"
+
+# The venv isn't tracked by dpkg, so remove it ourselves
+cat << 'EOF' > "$PKG_ROOT/DEBIAN/postrm"
+#!/bin/sh
+set -e
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    rm -rf /opt/obsidian-citadel/venv
+fi
+EOF
+chmod 755 "$PKG_ROOT/DEBIAN/postrm"
 
 # Build DEB
 echo "[5/5] Building package file..."
