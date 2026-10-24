@@ -16,6 +16,8 @@ class CitadelLogger:
     """Thread-safe enterprise logger with rotation and event stream support."""
 
     def __init__(self, log_dir: Optional[Path] = None):
+        if log_dir is None and os.environ.get("CITADEL_LOG_DIR"):
+            log_dir = Path(os.environ["CITADEL_LOG_DIR"])
         if log_dir is None:
             # Always log to the project directory for consistency —
             # /var/log/citadel doesn't exist and the root service can't
