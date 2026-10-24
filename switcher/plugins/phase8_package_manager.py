@@ -30,7 +30,7 @@ class Phase8PackageManager:
 
     def local_package_cache(self, lines: list):
         # Applied local_package_cache
-        lines.append('apt-get clean 2>/dev/null || true')
+        pass  # wiping the apt cache per mode switch only forces re-downloads
 
     def dotfiles_sync(self, lines: list):
         # Applied dotfiles_sync

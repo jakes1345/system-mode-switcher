@@ -32,7 +32,5 @@ class Phase9AutonomousAi:
         lines.append('echo "Citadel: Activating Thermal Prediction..."')
 
     def smart_battery_optimizer(self, lines: list):
-        # TLP conflicts with gaming/performance modes — only enable in balanced modes
-        if not getattr(self.config, 'gpu_performance', False):
-            lines.append('systemctl start tlp 2>/dev/null || true')
+        pass  # TLP sets its own governor/USB policy and fights the profile's
 
