@@ -56,12 +56,10 @@ class Phase4WaylandGraphics:
         lines.append('echo "Citadel: Activating Icc Color Profiles..."')
 
     def vram_defragmentation(self, lines: list):
-        # Applied vram_defragmentation
-        lines.append('echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true')
+        pass  # drop_caches throws away the page cache; it does nothing to VRAM
 
     def hwcursor_toggling(self, lines: list):
-        # Applied hwcursor_toggling
-        lines.append('export WLR_NO_HARDWARE_CURSORS=1')
+        pass  # an export in a root script never reaches the compositor
 
     def safe_graphics_mode(self, lines: list):
         # Applied safe_graphics_mode

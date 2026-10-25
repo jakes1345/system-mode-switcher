@@ -41,26 +41,18 @@ if [ ! -d "$SCRIPT_DIR/switcher" ]; then
     SCRIPT_DIR="$TMP_REPO"
 fi
 
-# Copy application
-echo "[1/4] Installing application to $APP_DIR..."
-rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR"
-cp -r "$SCRIPT_DIR/switcher" "$APP_DIR/"
-cp -r "$SCRIPT_DIR/services" "$APP_DIR/" 2>/dev/null || true
-cp -r "$SCRIPT_DIR/pkg" "$APP_DIR/" 2>/dev/null || true
-cp -r "$SCRIPT_DIR/internal" "$APP_DIR/" 2>/dev/null || true
-cp "$SCRIPT_DIR/main.py" "$APP_DIR/"
-cp "$SCRIPT_DIR/citadel_cli.py" "$APP_DIR/" 2>/dev/null || true
-cp "$SCRIPT_DIR/citadel_tray.py" "$APP_DIR/" 2>/dev/null || true
+# Copy application + root-owned venv (the hub runs this code as root)
+echo "[1/5] Installing application and Python environment to $APP_DIR..."
+bash "$SCRIPT_DIR/internal/deploy/install_app.sh" "$SCRIPT_DIR" "$APP_DIR"
 
 # Copy desktop file
-echo "[2/4] Installing desktop entry..."
+echo "[2/5] Installing desktop entry..."
 cp "$SCRIPT_DIR/switcher/desktop/system-mode-switcher.desktop" "$DESKTOP_FILE"
 # Update Exec path for system-wide deploy
-sed -i "s|Exec=.*|Exec=python3 $APP_DIR/main.py|" "$DESKTOP_FILE"
+sed -i "s|Exec=.*|Exec=$APP_DIR/venv/bin/python $APP_DIR/main.py|" "$DESKTOP_FILE"
 
 # Deploy icon — check project assets first
-echo "[3/4] Installing icons..."
+echo "[3/5] Installing icons..."
 mkdir -p "$APP_DIR/switcher/assets"
 ICON_SOURCE=""
 
@@ -75,7 +67,7 @@ fi
 
 if [ -n "$ICON_SOURCE" ]; then
     echo "  Deploying icon: $ICON_SOURCE"
-    cp "$ICON_SOURCE" "$APP_DIR/switcher/assets/citadel_icon.png"
+    install -m 644 "$ICON_SOURCE" "$APP_DIR/switcher/assets/citadel_icon.png"
     sed -i "s|Icon=.*|Icon=$APP_DIR/switcher/assets/citadel_icon.png|" "$DESKTOP_FILE"
 else
     echo "  No custom icon found. Using system default."
@@ -91,11 +83,12 @@ gtk-update-icon-cache /usr/share/icons/hicolor/ 2>/dev/null || true
 # Security & Services
 echo "[4/5] Deploying Polkit policy & Citadel control plane..."
 mkdir -p /usr/share/polkit-1/actions/
-cp "$SCRIPT_DIR/internal/security/com.obsidian.citadel.policy" /usr/share/polkit-1/actions/ 2>/dev/null || true
-cp "$SCRIPT_DIR/citadel-apply" /usr/local/bin/citadel-apply
-chmod 755 /usr/local/bin/citadel-apply
+install -m 644 -o root -g root "$SCRIPT_DIR/internal/security/com.obsidian.citadel.policy" /usr/share/polkit-1/actions/
+install -m 755 -o root -g root "$SCRIPT_DIR/citadel-apply" /usr/local/bin/citadel-apply
 
-cp "$SCRIPT_DIR/internal/systemd/citadel-hub.service" /etc/systemd/system/ 2>/dev/null || true
+install -m 644 -o root -g root "$SCRIPT_DIR/internal/systemd/citadel-hub.service" /etc/systemd/system/
+sed -i -e "s|CITADEL_CONFIG=.*\"|CITADEL_CONFIG=$REAL_HOME/obsidian-citadel.toml\"|" \
+       -e "s|CITADEL_USER=.*\"|CITADEL_USER=$REAL_USER\"|" /etc/systemd/system/citadel-hub.service 2>/dev/null || true
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable citadel-hub.service 2>/dev/null || true
 systemctl restart citadel-hub.service 2>/dev/null || true
@@ -121,4 +114,6 @@ fi
 echo ""
 echo "=== ✅ Obsidian Citadel Installation Complete! ==="
 echo "Control plane active. Launch 'Obsidian Citadel' from your app menu."
-echo "CLI command: python3 $APP_DIR/citadel_cli.py status"
+echo "CLI command: $APP_DIR/venv/bin/python $APP_DIR/citadel_cli.py status"
+echo "Hub log:     /var/log/obsidian-citadel/citadel.log"
+echo "Note: the hub runs the copy in $APP_DIR — re-run this installer after changing the source."

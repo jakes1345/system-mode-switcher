@@ -17,12 +17,29 @@ Obsidian Citadel is designed with a K8s-style reconciler architecture:
 3. **The UI**: A beautiful, unprivileged GTK3 dashboard that talks to the Hub over gRPC.
 
 ## 🚀 Installation
-Run the deployment script to harden the application and install the systemd unit.
 ```bash
 sudo ./install.sh
-sudo ./deploy_citadel.sh
 ```
+This copies the app to `/opt/obsidian-citadel` (root-owned, with its own venv for
+grpcio/protobuf/psutil), installs the PolicyKit policy and `citadel-hub.service`,
+and restarts the hub. The hub runs that copy, not your checkout — re-run the
+installer after changing the source. Hub logs: `/var/log/obsidian-citadel/citadel.log`.
 
 ## 🛠️ Modifying Profiles
-Edit `~/.config/obsidian-citadel.toml` or use the GTK Dashboard to tweak your profiles.
-The "Apply" action uses `pkexec` securely through a whitelisted PolicyKit wrapper.
+Edit `~/obsidian-citadel.toml` or use the GTK Dashboard to tweak your profiles.
+
+## 🔐 Security Model
+- The Hub runs as root from the root-owned `/opt/obsidian-citadel` in Python
+  isolated mode (`-I`), so no user-writable code or packages are imported.
+- The Hub listens only on the unix socket `/run/citadel/hub.sock`, owned by the
+  desktop user named in `CITADEL_USER` (mode `0600`). There is no TCP port.
+- The Hub reads **profile values only** from your `~/obsidian-citadel.toml`
+  (on/off for known services and processes, validated tweak values).
+- The services and processes it may manage — including every `start_cmd`/`stop_cmd`
+  — come from the root-owned `/etc/obsidian-citadel/citadel.toml` (same TOML
+  format, `[[service]]`/`[[process]]` tables), or the built-in defaults if it is
+  absent. The file and its directories must be owned by root and not
+  group/world-writable, or the Hub refuses it.
+- The `citadel-apply` PolicyKit action requires an admin password
+  (`auth_admin_keep`) and only runs a private root-owned copy of a script owned
+  by the authenticating user.

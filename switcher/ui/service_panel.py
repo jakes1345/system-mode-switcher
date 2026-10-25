@@ -161,6 +161,7 @@ class ServicePanel(Gtk.Box):
         # CPU Governor
         self.gov_combo = self._add_tweak_combo(inner, "CPU Frequency Governor", [
             ("performance", "High Performance"),
+            ("schedutil", "Balanced (schedutil)"),
             ("powersave", "Power Efficient")
         ], "performance")
 
@@ -238,7 +239,7 @@ class ServicePanel(Gtk.Box):
         """
         services = list(self.service_rows.keys())
         processes = [
-            (p.id, p.grep)
+            (p.id, p.grep, p.kind)
             for p in self._config.processes
             if p.id in self.process_rows
         ]
@@ -246,7 +247,7 @@ class ServicePanel(Gtk.Box):
         def _worker():
             svc_installed = {name: is_service_installed(name) for name in services}
             svc_status = {name: is_service_active(name) for name in services}
-            proc_status = {pid: is_process_running(grep) for pid, grep in processes}
+            proc_status = {pid: is_process_running(grep, kind) for pid, grep, kind in processes}
             def _apply():
                 for name, active in svc_status.items():
                     if name in self.service_rows:
@@ -281,7 +282,7 @@ class ServicePanel(Gtk.Box):
 
         services = list(self.service_rows.keys())
         processes = [
-            (p.id, p.grep)
+            (p.id, p.grep, p.kind)
             for p in self._config.processes
             if p.id in self.process_rows
         ]
@@ -290,7 +291,7 @@ class ServicePanel(Gtk.Box):
             results = {
                 "installed": {name: is_service_installed(name) for name in services},
                 "services": {name: is_service_active(name) for name in services},
-                "processes": {pid: is_process_running(grep) for pid, grep in processes},
+                "processes": {pid: is_process_running(grep, kind) for pid, grep, kind in processes},
                 "swappiness": get_swappiness(),
                 "unredirect": get_compositor_unredirect(),
                 "gpu_perf": get_gpu_performance_mode(),

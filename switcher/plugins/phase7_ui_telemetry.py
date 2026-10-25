@@ -60,7 +60,7 @@ class Phase7UiTelemetry:
 
     def notification_daemon(self, lines: list):
         # Applied notification_daemon
-        lines.append('systemctl restart dunst 2>/dev/null || true')
+        pass  # dunst is a user service; restarting it as root does nothing
 
     def oobe_installer(self, lines: list):
         # Applied oobe_installer
