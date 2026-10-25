@@ -3,17 +3,19 @@ Citadel Pulse Core — High-Performance Background Telemetry Engine.
 Runs telemetry collection as a background 'pulse' to ensure zero lag in the UI.
 """
 
-import time
 import threading
-import psutil
-from typing import Optional, List
+import time
 from dataclasses import dataclass, field
+
+import psutil
+
 from switcher.core.logger import logger
+
 
 @dataclass
 class TelemetryState:
     """Atomic state of the entire system's vitals."""
-    cpu_heatmap: List[float] = field(default_factory=list)
+    cpu_heatmap: list[float] = field(default_factory=list)
     ram_used_gb: float = 0.0
     ram_total_gb: float = 0.0
     gpu_temp: int = 0
@@ -30,7 +32,7 @@ class PulseEngine:
         self.state = TelemetryState()
         self._lock = threading.Lock()
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
     def start(self):
         """Start the background pulse."""
@@ -57,9 +59,8 @@ class PulseEngine:
             start_loop = time.time()
             try:
                 self._collect()
-            except Exception as e:
-                # In enterprise apps, background threads MUST NOT crash the process
-                pass 
+            except Exception as e:  # noqa: BLE001 — a failed sample must not kill the telemetry thread
+                logger.error("Pulse", f"Telemetry collection failed: {e}")
             
             elapsed = time.time() - start_loop
             sleep_time = max(0, self.interval - elapsed)

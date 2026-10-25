@@ -50,9 +50,7 @@ def save_profile_dialog(parent: Gtk.Window) -> tuple[str, str] | None:
     response = dialog.run()
     name = name_entry.get_text().strip()
     rgba = color_btn.get_rgba()
-    color = "#{:02x}{:02x}{:02x}".format(
-        int(rgba.red * 255), int(rgba.green * 255), int(rgba.blue * 255)
-    )
+    color = f"#{int(rgba.red * 255):02x}{int(rgba.green * 255):02x}{int(rgba.blue * 255):02x}"
     dialog.destroy()
 
     if response != Gtk.ResponseType.OK or not name:

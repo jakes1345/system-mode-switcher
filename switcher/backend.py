@@ -11,15 +11,13 @@ import shlex
 import shutil
 import subprocess
 import tempfile
-from pathlib import Path
-
-
 import time
 import types
+from pathlib import Path
+
 import psutil
 
 from switcher.config import ProcessConfig
-
 from switcher.plugins.phase1_bootloader import Phase1Bootloader
 from switcher.plugins.phase2_kernel_silicon import Phase2KernelSilicon
 from switcher.plugins.phase3_storage_zfs import Phase3StorageZfs
@@ -50,10 +48,9 @@ def get_primary_interface() -> str:
     """Detect the most likely active physical interface."""
     for root, dirs, _ in os.walk("/sys/class/net"):
         for d in dirs:
-            if d.startswith(("wl", "en", "eth", "wlan")):
-                # Filter out virtual/loopback
-                if Path(f"/sys/class/net/{d}/device").exists():
-                    return d
+            # Filter out virtual/loopback
+            if d.startswith(("wl", "en", "eth", "wlan")) and Path(f"/sys/class/net/{d}/device").exists():
+                return d
     return "wlan0"
 
 GPU_VENDOR = detect_gpu_vendor()
@@ -79,7 +76,7 @@ def get_system_vitals_snapshot() -> dict:
         vitals["disk_pressure"] = round(float(times.iowait if hasattr(times, "iowait") else 0), 2)
         
         # Heavy Hitter Process
-        r = subprocess.run(["ps", "-eo", "pcpu,comm", "--sort=-pcpu", "--no-headers"], capture_output=True, text=True, timeout=1)
+        r = subprocess.run(["ps", "-eo", "pcpu,comm", "--sort=-pcpu", "--no-headers"], capture_output=True, text=True, timeout=1, check=False)
         if r.returncode == 0 and r.stdout:
             parts = r.stdout.strip().splitlines()[0].split(maxsplit=1)
             if len(parts) == 2:
@@ -102,7 +99,7 @@ def get_gpu_vitals() -> dict:
             
         try:
             cmd = ["nvidia-smi", "--query-gpu=temperature.gpu,power.draw,memory.used,memory.total,utilization.gpu,fan.speed", "--format=csv,noheader,nounits"]
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=1)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=1, check=False)
             if r.returncode == 0:
                 parts = [p.strip() for p in r.stdout.split(",")]
                 if len(parts) >= 6:
@@ -185,6 +182,7 @@ def get_installed_services(force_refresh: bool = False) -> set[str]:
         r = subprocess.run(
             ["systemctl", "list-unit-files", "--type=service", "--no-legend"],
             capture_output=True, text=True, timeout=5,
+            check=False,
         )
         installed = set()
         for line in r.stdout.splitlines():
@@ -201,7 +199,7 @@ def is_service_installed(name: str) -> bool:
     installed = get_installed_services()
     if not installed:
         try:
-            r = subprocess.run(["systemctl", "status", name], capture_output=True, text=True, timeout=3)
+            r = subprocess.run(["systemctl", "status", name], capture_output=True, text=True, timeout=3, check=False)
             return "Unit " not in r.stderr and "could not be found" not in r.stderr
         except OSError:
             return True
@@ -215,14 +213,13 @@ def is_service_active(name: str) -> bool:
         r = subprocess.run(
             ["systemctl", "is-active", name],
             capture_output=True, text=True, timeout=5,
+            check=False,
         )
         if r.stdout.strip() != "active":
             return False
         # Ensure it's not frozen
-        r2 = subprocess.run(["systemctl", "show", "-p", "FreezerState", name], capture_output=True, text=True)
-        if "FreezerState=frozen" in r2.stdout:
-            return False
-        return True
+        r2 = subprocess.run(["systemctl", "show", "-p", "FreezerState", name], capture_output=True, text=True, check=False)
+        return "FreezerState=frozen" not in r2.stdout
     except (subprocess.TimeoutExpired, OSError):
         return False
 
@@ -231,7 +228,7 @@ def is_service_frozen(name: str) -> bool:
     if not is_service_installed(name):
         return False
     try:
-        r = subprocess.run(["systemctl", "show", "-p", "FreezerState", name], capture_output=True, text=True, timeout=5)
+        r = subprocess.run(["systemctl", "show", "-p", "FreezerState", name], capture_output=True, text=True, timeout=5, check=False)
         return "FreezerState=frozen" in r.stdout
     except (subprocess.TimeoutExpired, OSError):
         return False
@@ -339,6 +336,7 @@ def get_compositor_unredirect() -> bool:
         r = subprocess.run(
             ["gsettings", "get", "org.cinnamon.muffin", "unredirect-fullscreen-windows"],
             capture_output=True, text=True, timeout=5,
+            check=False,
         )
         return r.stdout.strip() == "true"
     except (subprocess.TimeoutExpired, OSError):
@@ -352,6 +350,7 @@ def get_gpu_performance_mode() -> bool | None:
             r = subprocess.run(
                 ["nvidia-settings", "-t", "-q", "[gpu:0]/GpuPowerMizerMode"],
                 capture_output=True, text=True, timeout=5,
+                check=False,
             )
             if r.returncode == 0:
                 return int(r.stdout.strip()) == 1
@@ -363,6 +362,7 @@ def get_gpu_performance_mode() -> bool | None:
             r = subprocess.run(
                 ["lact", "info"],
                 capture_output=True, text=True, timeout=5,
+                check=False,
             )
             if r.returncode == 0:
                 return "performance" in r.stdout.lower()
@@ -403,6 +403,7 @@ def get_gpu_power_limits() -> tuple[int, int, int]:
             r = subprocess.run(
                 ["nvidia-smi", "--query-gpu=power.min_limit,power.max_limit,power.default_limit", "--format=csv,noheader,nounits"],
                 capture_output=True, text=True, timeout=3,
+                check=False,
             )
             if r.returncode == 0 and r.stdout.strip():
                 parts = [int(float(x.strip())) for x in r.stdout.strip().split(",")]
@@ -412,7 +413,7 @@ def get_gpu_power_limits() -> tuple[int, int, int]:
             pass
     elif GPU_VENDOR == "amd":
         try:
-            r = subprocess.run(["lact", "info"], capture_output=True, text=True, timeout=3)
+            r = subprocess.run(["lact", "info"], capture_output=True, text=True, timeout=3, check=False)
             if r.returncode == 0:
                 # LACT default fallback
                 return 100, 300, 200
@@ -462,7 +463,7 @@ def get_hardware_report() -> str:
 
         # 3. GPU
         if GPU_VENDOR == "nvidia":
-            r = subprocess.run(["nvidia-smi", "--query-gpu=power.limit", "--format=csv,noheader"], capture_output=True, text=True)
+            r = subprocess.run(["nvidia-smi", "--query-gpu=power.limit", "--format=csv,noheader"], capture_output=True, text=True, check=False)
             if r.returncode == 0:
                 report.append(f"[CONFIRM] GPU_POWER_LIMIT: {r.stdout.strip()}")
                 
@@ -653,6 +654,7 @@ def run_apply_script(script_content: str, sudo_password: str | None = None) -> t
             r = subprocess.run(
                 ["bash", path],
                 capture_output=True, text=True, timeout=120,
+                check=False,
             )
             output = r.stdout.strip()
             if r.returncode != 0:
@@ -664,6 +666,7 @@ def run_apply_script(script_content: str, sudo_password: str | None = None) -> t
             r = subprocess.run(
                 ["pkexec", "/usr/local/bin/citadel-apply", path],
                 capture_output=True, text=True, timeout=120,
+                check=False,
             )
             output = r.stdout.strip()
             if r.returncode != 0:
@@ -680,6 +683,7 @@ def run_apply_script(script_content: str, sudo_password: str | None = None) -> t
                 ["sudo", "-S", "bash", path],
                 input=sudo_password + "\n",
                 capture_output=True, text=True, timeout=120,
+                check=False,
             )
             output = r.stdout.strip()
             if r.returncode != 0:
@@ -712,6 +716,7 @@ def set_compositor_unredirect(value: bool) -> tuple[bool, str]:
             ["gsettings", "set", "org.cinnamon.muffin",
              "unredirect-fullscreen-windows", val],
             capture_output=True, text=True, timeout=5,
+            check=False,
         )
         return r.returncode == 0, r.stderr.strip()
     except (subprocess.TimeoutExpired, OSError) as e:
@@ -725,6 +730,7 @@ def set_nvidia_gpu_mode(performance: bool) -> tuple[bool, str]:
         r = subprocess.run(
             ["nvidia-settings", "-a", f"[gpu:0]/GpuPowerMizerMode={mode}"],
             capture_output=True, text=True, timeout=5,
+            check=False,
         )
         return r.returncode == 0, r.stderr.strip()
     except (subprocess.TimeoutExpired, OSError) as e:

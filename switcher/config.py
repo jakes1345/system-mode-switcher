@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-
 @dataclass
 class ServiceConfig:
     name: str          # systemd unit name

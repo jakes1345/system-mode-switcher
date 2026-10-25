@@ -412,8 +412,10 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         thread.start()
 
     def _apply_grpc_worker(self, profile_name: str, desired: dict) -> None:
+        import os
+        import sys
+
         import grpc
-        import os, sys
         hub_path = os.path.join(os.path.dirname(__file__), '../../services/hub')
         if hub_path not in sys.path: sys.path.insert(0, hub_path)
         import citadel_pb2
@@ -443,7 +445,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             if not resp.success and resp.output:
                 GLib.idle_add(self._log, resp.output)
             ok = resp.success
-        except Exception as e:
+        except (grpc.RpcError, ValueError, TypeError) as e:
             GLib.idle_add(self._log, f"Hub Error: {e}")
             ok = False
 
@@ -501,8 +503,8 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             n.set_urgency(1)  # NORMAL urgency
             n.set_timeout(5000)
             n.show()
-        except Exception:
-            pass
+        except GLib.Error as e:
+            self._log(f"Notification not shown: {e.message}")
 
     def _delayed_status_refresh(self) -> bool:
         """Called shortly after apply to update status dots once slow units have started."""
@@ -592,8 +594,10 @@ class SwitcherWindow(Gtk.ApplicationWindow):
 
         def telemetry_worker():
             """Hardware sampling engine via gRPC stream."""
+            import os
+            import sys
+
             import grpc
-            import os, sys
             hub_path = os.path.join(os.path.dirname(__file__), '../../services/hub')
             if hub_path not in sys.path: sys.path.insert(0, hub_path)
             import citadel_pb2
@@ -626,7 +630,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
                             "top_process": pulse.top_process
                         }
                         GLib.idle_add(_apply_vitals_to_ui, data)
-                except Exception:
+                except grpc.RpcError:
                     def _set_offline():
                         if getattr(self, "_hub_connected", True):
                             self._hub_connected = False
@@ -635,10 +639,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
                     GLib.idle_add(_set_offline)
                 finally:
                     if channel:
-                        try:
-                            channel.close()
-                        except Exception:
-                            pass
+                        channel.close()
                 time.sleep(2)
 
         threading.Thread(target=telemetry_worker, daemon=True, name="CitadelVitals").start()

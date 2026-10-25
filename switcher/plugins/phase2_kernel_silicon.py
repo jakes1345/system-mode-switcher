@@ -55,9 +55,9 @@ class Phase2KernelSilicon:
         if not governor:
             return
         lines.append(f'echo "CPU_GOVERNOR: Applying {governor.upper()} to all 12 logical CPUs..."')
-        lines.append(f'for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do')
+        lines.append('for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do')
         lines.append(f'    echo {governor} > "$f" 2>/dev/null || true')
-        lines.append(f'done')
+        lines.append('done')
         # Also set EPP hint for amd-pstate-epp driver
         if governor == 'performance':
             epp = 'performance'
@@ -65,9 +65,9 @@ class Phase2KernelSilicon:
             epp = 'balance_performance'
         else:
             epp = 'power'
-        lines.append(f'for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do')
+        lines.append('for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do')
         lines.append(f'    echo {epp} > "$f" 2>/dev/null || true')
-        lines.append(f'done')
+        lines.append('done')
         lines.append(f'echo "CPU_GOVERNOR: Done — governor={governor}, epp={epp}"')
 
     def cset_cpu_shielding(self, lines: list):
