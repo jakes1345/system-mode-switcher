@@ -143,7 +143,7 @@ class TestApplyScriptGeneration(unittest.TestCase):
         )
         self.assertIn("vm.swappiness=10", script)
         self.assertIn("transparent_hugepage", script)
-        self.assertIn("setsid bash -c 'python3 test.py'", script)
+        self.assertIn("bash -c 'python3 test.py'", script)
         # The "already running?" check uses the configured pattern, not the id
         self.assertIn("citadel_pids 'test\\.py'", script)
 
@@ -194,16 +194,98 @@ class TestApplyScriptGeneration(unittest.TestCase):
         self.assertLess(script.index("FRIDAY_AI/docker-compose.yml' stop"),
                         script.index("citadel_stop_unit docker.service"))
 
-    def _run_with_fake_systemctl(self, script: str, fail_on: str):
+    def _run_with_fakes(self, script: str, fakes: dict[str, str], **env):
+        """Run `script` with fake commands (name -> bash body) first on PATH."""
         import subprocess
         tmp = Path(tempfile.mkdtemp())
-        fake = tmp / "systemctl"
-        fake.write_text(f'#!/bin/bash\n[ "$1" = "{fail_on}" ] && exit 1\nexit 0\n')
-        fake.chmod(0o755)
+        for name, body in fakes.items():
+            fake = tmp / name
+            fake.write_text(f"#!/bin/bash\n{body}\n")
+            fake.chmod(0o755)
         script_path = tmp / "apply.sh"
         script_path.write_text(script)
-        env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}")
-        return subprocess.run(["bash", str(script_path)], capture_output=True, text=True, env=env, timeout=30)
+        env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", **env)
+        return subprocess.run(["bash", str(script_path)], capture_output=True, text=True, env=env, timeout=30,
+                              check=False)
+
+    def _run_with_fake_systemctl(self, script: str, fail_on: str):
+        return self._run_with_fakes(script, {"systemctl": f'[ "$1" = "{fail_on}" ] && exit 1\nexit 0'})
+
+    def test_host_processes_run_as_desktop_user(self):
+        import pwd
+
+        from switcher.config import DEFAULT_PROCESSES, ProcessConfig
+        me = pwd.getpwuid(os.getuid())
+        shadow = tempfile.mkdtemp()
+        hands = next(p for p in DEFAULT_PROCESSES if p.id == "friday-hands")
+        bot = ProcessConfig("bot", "Bot", "", "^bot$", "python3 -m bot")
+        with patch.dict(os.environ, CITADEL_USER=me.pw_name, SHADOW_ROOT=shadow):
+            script = self._script(processes_to_start=[bot], processes_to_kill=[hands])
+        prefix = f"setpriv --reuid={me.pw_uid} --regid={me.pw_gid} --init-groups --reset-env env"
+        self.assertIn(f"setsid {prefix} ", script)
+        self.assertIn(f"XDG_RUNTIME_DIR=/run/user/{me.pw_uid} ", script)
+        self.assertIn("bash -c 'python3 -m bot'", script)
+        self.assertIn("bash -c 'systemctl --user stop friday-hands.service' || citadel_fail", script)
+        # User-owned code is only ever on the user's PYTHONPATH, never root's
+        for line in script.splitlines():
+            if shadow in line:
+                self.assertIn(prefix, line)
+        self.assertNotIn("export PYTHONPATH", script)
+
+    def test_host_processes_never_run_as_root_by_default(self):
+        import switcher.backend as backend
+        from switcher.config import ProcessConfig
+        bot = ProcessConfig("bot", "Bot", "", "^bot$", "python3 -m bot", "pkill bot")
+        with patch.object(backend, "desktop_account", return_value=None):
+            script = self._script(processes_to_start=[bot], processes_to_kill=[bot], run_plugins=False)
+        self.assertNotIn("python3 -m bot", script)
+        self.assertNotIn("pkill bot", script)
+        self.assertIn("citadel_fail 'start bot: no desktop user", script)
+        self.assertIn("citadel_fail 'stop bot: no desktop user", script)
+
+    def test_compose_stop_survives_missing_compose_file(self):
+        from switcher.config import ProcessConfig
+        gone = ProcessConfig("compose-x", "X", "", "x-db", "docker compose -f /gone/x.yml up -d",
+                             "docker compose -f /gone/x.yml stop", "compose")
+        script = self._script(processes_to_kill=[gone], run_plugins=False)
+        log = Path(tempfile.mkdtemp()) / "stopped"
+        docker = ('case "$1" in\n'
+                  '  compose) echo "open /gone/x.yml: no such file or directory" >&2; exit 1;;\n'
+                  '  ps) echo x-db-1; echo unrelated;;\n'
+                  '  stop) shift; echo "$@" >> "$LOG"; exit "${STOP_RC:-0}";;\n'
+                  'esac')
+        ok = self._run_with_fakes(script, {"docker": docker}, LOG=str(log))
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        self.assertEqual(log.read_text().split(), ["x-db-1"])  # by name, nothing else
+        bad = self._run_with_fakes(script, {"docker": docker}, LOG=str(log), STOP_RC="1")
+        self.assertEqual(bad.returncode, 1)
+        self.assertIn("stop compose-x", bad.stderr)
+
+    def test_missing_kernel_files_are_written_quietly(self):
+        import re
+        for perf in (False, True):
+            script = self._script(gpu_performance=perf, cpu_shielding=perf, thp_mode="madvise")
+            leaky = [l for l in script.splitlines()
+                     if not l.startswith("#") and re.search(r"echo [^|;]*> *\S+ 2>/dev/null", l)]
+            self.assertEqual(leaky, [])
+        from switcher.config import ProcessConfig
+        proc = ProcessConfig("p", "P", "", "^nothing-matches-this$", "")
+        script = self._script(processes_to_kill=[proc], processes_to_start=[proc], run_plugins=False)
+        r = self._run_with_fakes(script, {})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("No such file", r.stderr)
+
+    def test_gpu_power_limit_applied_or_reset(self):
+        import switcher.backend as backend
+        with patch.object(backend, "GPU_VENDOR", "nvidia"):
+            self.assertIn("nvidia-smi -pl 150 ", self._script(gpu_power_limit=150))
+            self.assertIn("power.default_limit", self._script(gpu_power_limit=None))
+            self.assertNotIn("nvidia-smi", self._script(gpu_power_limit=150, run_plugins=False))
+        with patch.object(backend, "GPU_VENDOR", "amd"):
+            script = self._script(gpu_power_limit=150)
+            self.assertIn("citadel_write 150000000 ", script)
+            self.assertNotIn("$((watts", script)
+            self.assertIn('"${f}_default"', self._script(gpu_power_limit=None))
 
     def test_script_exit_code_reflects_failures(self):
         script = self._script(services_to_start=["fake.service"], run_plugins=False)
@@ -214,6 +296,23 @@ class TestApplyScriptGeneration(unittest.TestCase):
         self.assertEqual(bad.returncode, 1)
         self.assertIn("RECONCILE_FAILED", bad.stdout)
         self.assertIn("start fake.service", bad.stderr)
+
+
+# Real command lines of the default host processes, and ones that only mention them
+HOST_PROGRAMS = {
+    "qdrant": ("qdrant --config-path /etc/qdrant/config.yaml", "/usr/local/bin/qdrant"),
+    "shadow-sentinel": ("python3 -m shadowcypher.core.irc_bot",),
+    "shadow-hub": ("/home/jack/ShadowCypher/.venv/bin/python3.12 -m shadowcypher.core.hub",),
+    "friday-hands": (("/media/jack/New Volume/FRIDAY_AI/friday-hands/.venv/bin/python -m uvicorn"
+                      " hands_server:app --host 127.0.0.1 --port 8102"),),
+}
+BYSTANDERS = (
+    "/opt/google/chrome/chrome --type=renderer --renderer-client-id=8102 --field-trial-handle=3,i,81020",
+    "nvim qdrant-notes.md",
+    "python3 -m shadowcypher.core.hub_tests",
+    "bash -c pgrep -af 'friday_hands|8102'",
+    "bash -c python3 -m shadowcypher.core.hub",
+)
 
 
 class TestProcessDetection(unittest.TestCase):
@@ -242,6 +341,41 @@ class TestProcessDetection(unittest.TestCase):
         import switcher.backend as backend
         with patch.object(backend, "_is_containerised", return_value=True):
             self.assertEqual(backend.find_process_pids("python"), [])
+
+    def test_host_patterns_match_only_their_program(self):
+        import re
+
+        from switcher.config import DEFAULT_PROCESSES
+        host = [p for p in DEFAULT_PROCESSES if p.kind == "process"]
+        self.assertEqual({p.id for p in host}, set(HOST_PROGRAMS))
+        for p in host:
+            rx = re.compile(p.grep)
+            self.assertTrue(p.grep.startswith("^"), p.id)
+            for cmdline in HOST_PROGRAMS[p.id]:
+                self.assertTrue(rx.search(cmdline), f"{p.id} should match {cmdline!r}")
+            for cmdline in (*BYSTANDERS, f"grep -E {p.grep} log", f"bash -c pgrep -f '{p.grep}'"):
+                self.assertFalse(rx.search(cmdline), f"{p.id} must not match {cmdline!r}")
+
+    def test_kill_helper_uses_the_same_pattern_semantics(self):
+        """The root script's pgrep (POSIX ERE) agrees with find_process_pids (Python re)."""
+        import shlex
+        import subprocess
+        import time
+
+        from switcher.backend import _SCRIPT_PRELUDE
+        from switcher.config import DEFAULT_PROCESSES
+        pattern = next(p.grep for p in DEFAULT_PROCESSES if p.id == "friday-hands")
+        target = subprocess.Popen(["bash", "-c", f'exec -a "{HOST_PROGRAMS["friday-hands"][0]}" sleep 30'])
+        bystander = subprocess.Popen(["bash", "-c", f'exec -a "{BYSTANDERS[0]}" sleep 30'])
+        try:
+            time.sleep(0.2)
+            r = subprocess.run(["bash", "-c", f"{_SCRIPT_PRELUDE}\ncitadel_pids {shlex.quote(pattern)}"],
+                               capture_output=True, text=True, timeout=10, check=False)
+            self.assertEqual(r.stdout.split(), [str(target.pid)])
+        finally:
+            for proc in (target, bystander):
+                proc.kill()
+                proc.wait()
 
     def test_compose_kind_inferred_from_id(self):
         from switcher.config import load_config

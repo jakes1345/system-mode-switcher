@@ -113,15 +113,25 @@ DEFAULT_SERVICES = [
     ServiceConfig("ollama.service", "Ollama", "Local LLM runner daemon", "Data & AI"),
 ]
 
+# Host-process patterns are matched against full command lines and whatever
+# matches gets killed by root, so they are anchored at ^ to the program being
+# run: an unanchored "8102" or "qdrant" also hits browsers, editors and shells
+# that merely mention it. Start/stop commands of host processes run as the
+# desktop user (see build_apply_script).
 DEFAULT_PROCESSES = [
-    ProcessConfig("qdrant", "Qdrant Vector DB", "Standalone vector database", "qdrant",
+    ProcessConfig("qdrant", "Qdrant Vector DB", "Standalone vector database", "^([^ ]*/)?qdrant( |$)",
                   "qdrant --config-path /etc/qdrant/config.yaml"),
-    ProcessConfig("shadow-sentinel", "Sentinel AI", "Headless Recon Bot", "shadowcypher.core.irc_bot",
+    ProcessConfig("shadow-sentinel", "Sentinel AI", "Headless Recon Bot",
+                  r"^[^ ]*python[0-9.]* -m shadowcypher\.core\.irc_bot( |$)",
                   "python3 -m shadowcypher.core.irc_bot"),
-    ProcessConfig("shadow-hub", "ShadowHub", "Core Tactical Backend", "shadowcypher.core.hub",
+    ProcessConfig("shadow-hub", "ShadowHub", "Core Tactical Backend",
+                  r"^[^ ]*python[0-9.]* -m shadowcypher\.core\.hub( |$)",
                   "python3 -m shadowcypher.core.hub"),
-    ProcessConfig("friday-hands", "Friday Hands", "AI agent execution server", "friday_hands|8102",
-                  "systemctl start friday-hands 2>/dev/null || true"),
+    # A systemd user unit: started/stopped through the user's own manager
+    ProcessConfig("friday-hands", "Friday Hands", "AI agent execution server",
+                  r"^/media/jack/New Volume/FRIDAY_AI/friday-hands/\.venv/bin/python -m uvicorn hands_server:app( |$)",
+                  "systemctl --user start friday-hands.service",
+                  "systemctl --user stop friday-hands.service"),
     ProcessConfig("compose-friday-ai", "Friday AI Stack", "Open WebUI + Brain + Qdrant (Docker)", "friday-webui|friday-brain|friday-qdrant",
                   "docker compose -f '/media/jack/New Volume/FRIDAY_AI/docker-compose.yml' up -d",
                   "docker compose -f '/media/jack/New Volume/FRIDAY_AI/docker-compose.yml' stop", "compose"),

@@ -56,7 +56,7 @@ class Phase2KernelSilicon:
             return
         lines.append(f'echo "CPU_GOVERNOR: Applying {governor.upper()} to all 12 logical CPUs..."')
         lines.append('for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do')
-        lines.append(f'    echo {governor} > "$f" 2>/dev/null || true')
+        lines.append(f'    citadel_write {governor} "$f" || true')
         lines.append('done')
         # Also set EPP hint for amd-pstate-epp driver
         if governor == 'performance':
@@ -66,7 +66,7 @@ class Phase2KernelSilicon:
         else:
             epp = 'power'
         lines.append('for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do')
-        lines.append(f'    echo {epp} > "$f" 2>/dev/null || true')
+        lines.append(f'    citadel_write {epp} "$f" || true')
         lines.append('done')
         lines.append(f'echo "CPU_GOVERNOR: Done — governor={governor}, epp={epp}"')
 
@@ -81,18 +81,18 @@ class Phase2KernelSilicon:
         lines.append('    sys_max=$((total_cpus - 3))')
         lines.append('    game_min=$((total_cpus - 2))')
         lines.append('    game_max=$((total_cpus - 1))')
-        lines.append('    echo "0-$sys_max" > /sys/fs/cgroup/system.slice/cpuset.cpus 2>/dev/null || true')
-        lines.append('    echo "0-$sys_max" > /sys/fs/cgroup/user.slice/cpuset.cpus 2>/dev/null || true')
-        lines.append('    for f in /proc/irq/*/smp_affinity_list; do echo "0-$sys_max" > "$f" 2>/dev/null || true; done')
+        lines.append('    citadel_write "0-$sys_max" /sys/fs/cgroup/system.slice/cpuset.cpus || true')
+        lines.append('    citadel_write "0-$sys_max" /sys/fs/cgroup/user.slice/cpuset.cpus || true')
+        lines.append('    for f in /proc/irq/*/smp_affinity_list; do citadel_write "0-$sys_max" "$f" || true; done')
         lines.append('    echo "CPU_SHIELDING: Isolated game CPUs $game_min-$game_max. System tasks on 0-$sys_max."')
         lines.append('fi')
 
     def _cset_restore(self, lines: list):
         """Undo shielding: empty cpuset.cpus means 'inherit all CPUs from parent'."""
-        lines.append('echo "" > /sys/fs/cgroup/system.slice/cpuset.cpus 2>/dev/null || true')
-        lines.append('echo "" > /sys/fs/cgroup/user.slice/cpuset.cpus 2>/dev/null || true')
+        lines.append('citadel_write "" /sys/fs/cgroup/system.slice/cpuset.cpus || true')
+        lines.append('citadel_write "" /sys/fs/cgroup/user.slice/cpuset.cpus || true')
         lines.append('all_cpus="0-$(( $(nproc 2>/dev/null || echo 1) - 1 ))"')
-        lines.append('for f in /proc/irq/*/smp_affinity_list; do echo "$all_cpus" > "$f" 2>/dev/null || true; done')
+        lines.append('for f in /proc/irq/*/smp_affinity_list; do citadel_write "$all_cpus" "$f" || true; done')
 
     def dynamic_microcode(self, lines: list):
         # Applied dynamic_microcode
@@ -101,10 +101,10 @@ class Phase2KernelSilicon:
     def io_scheduler_swap(self, lines: list):
         if getattr(self.config, 'gpu_performance', False):
             lines.append('echo "NVMe Scheduler: none (Gaming — zero overhead)"')
-            lines.append('for d in /sys/block/nvme*n*/queue/scheduler; do echo none > "$d" 2>/dev/null || true; done')
+            lines.append('for d in /sys/block/nvme*n*/queue/scheduler; do citadel_write none "$d" || true; done')
         else:
             lines.append('echo "NVMe Scheduler: mq-deadline (Default)"')
-            lines.append('for d in /sys/block/nvme*n*/queue/scheduler; do echo mq-deadline > "$d" 2>/dev/null || true; done')
+            lines.append('for d in /sys/block/nvme*n*/queue/scheduler; do citadel_write mq-deadline "$d" || true; done')
 
     def kernel_panic_interceptor(self, lines: list):
         pass  # don't silently change the distro's kernel.panic setting
@@ -133,9 +133,9 @@ class Phase2KernelSilicon:
     def pcie_aspm(self, lines: list):
         if getattr(self.config, 'gpu_performance', False):
             # Disable ASPM power savings in gaming — prevents PCIe link state switching latency
-            lines.append('echo performance > /sys/module/pcie_aspm/parameters/policy 2>/dev/null || true')
+            lines.append('citadel_write performance /sys/module/pcie_aspm/parameters/policy || true')
         else:
-            lines.append('echo default > /sys/module/pcie_aspm/parameters/policy 2>/dev/null || true')
+            lines.append('citadel_write default /sys/module/pcie_aspm/parameters/policy || true')
 
     def usb_hub_powerdown(self, lines: list):
         """In gaming mode: force USB power ON to prevent device suspend (input lag).
@@ -143,7 +143,7 @@ class Phase2KernelSilicon:
         """
         if getattr(self.config, 'gpu_performance', False):
             lines.append('echo "USB_POWER: Forcing ON — preventing controller suspend during gaming"')
-            lines.append('for f in /sys/bus/usb/devices/*/power/control; do echo on > $f 2>/dev/null || true; done')
+            lines.append('for f in /sys/bus/usb/devices/*/power/control; do citadel_write on "$f" || true; done')
         # Other modes leave USB alone: forcing 'auto' autosuspends mice/keyboards
 
     def ebpf_execve_logger(self, lines: list):
@@ -156,5 +156,5 @@ class Phase2KernelSilicon:
 
     def thp_tuning(self, lines: list):
         if getattr(self.config, 'thp_mode', None) is not None:
-            lines.append(f'echo {self.config.thp_mode} > /sys/kernel/mm/transparent_hugepage/enabled || true')
-            lines.append(f'echo {self.config.thp_mode} > /sys/kernel/mm/transparent_hugepage/defrag 2>/dev/null || true')
+            lines.append(f'citadel_write {self.config.thp_mode} /sys/kernel/mm/transparent_hugepage/enabled || true')
+            lines.append(f'citadel_write {self.config.thp_mode} /sys/kernel/mm/transparent_hugepage/defrag || true')

@@ -6,6 +6,7 @@ No GTK imports. All functions are safe to call from any thread.
 from __future__ import annotations
 
 import os
+import pwd
 import re
 import shlex
 import shutil
@@ -430,12 +431,20 @@ def set_cpu_governor(governor: str) -> str:
     except (OSError, ValueError):
         return ""
 
-def set_gpu_power_limit(watts: int) -> str:
-    """Set GPU power limit in Watts across NVIDIA/AMD."""
+def set_gpu_power_limit(watts: int | None) -> str:
+    """Bash that sets the GPU power limit in watts, or restores the card's default
+    when `watts` is None. A requested limit that can't be set counts as a failure."""
     if GPU_VENDOR == "nvidia":
-        return f"nvidia-smi -pl {watts} 2>/dev/null || true"
-    elif GPU_VENDOR == "amd":
-        return f"lact set-power-limit {watts} 2>/dev/null || for f in /sys/class/drm/card0/device/hwmon/hwmon*/power1_cap; do echo $((watts*1000000)) > $f 2>/dev/null || true; done"
+        if watts:
+            return f"nvidia-smi -pl {int(watts)} >/dev/null || citadel_fail 'GPU power limit {int(watts)} W'"
+        return ("nvidia-smi --query-gpu=index,power.default_limit --format=csv,noheader,nounits 2>/dev/null"
+                " | while IFS=', ' read -r i w; do nvidia-smi -i \"$i\" -pl \"${w%.*}\" >/dev/null 2>&1; done")
+    if GPU_VENDOR == "amd":
+        caps = "/sys/class/drm/card*/device/hwmon/hwmon*/power1_cap"  # amdgpu, in microwatts
+        if watts:
+            return (f"for f in {caps}; do citadel_write {int(watts) * 1_000_000} \"$f\""
+                    f" || citadel_fail 'GPU power limit {int(watts)} W'; done")
+        return f"for f in {caps}; do [ -r \"${{f}}_default\" ] && citadel_write \"$(cat \"${{f}}_default\")\" \"$f\"; done"
     return ""
 
 def set_kernel_thp(mode: str) -> str:
@@ -480,6 +489,11 @@ _SCRIPT_PRELUDE = r"""
 CITADEL_FAILURES=0
 citadel_fail() { echo "FAILED: $*" >&2; CITADEL_FAILURES=$((CITADEL_FAILURES + 1)); }
 
+# Write a value to a kernel/cgroup file that may not exist here, quietly.
+# (`echo v > f 2>/dev/null` still prints the error: the redirect to f fails
+# before stderr points at /dev/null.)
+citadel_write() { { echo "$1" > "$2"; } 2>/dev/null; }
+
 # pgrep -f minus processes living inside containers (Docker restarts those).
 citadel_pids() {
     local pid
@@ -508,6 +522,35 @@ citadel_start_unit() {
     systemctl start "$1" || citadel_fail "start $1"
 }
 """
+
+
+def desktop_account() -> pwd.struct_passwd | None:
+    """The user that host processes are started/stopped as: CITADEL_USER (set in
+    citadel-hub.service for the root hub), else whoever builds the script."""
+    try:
+        name = os.environ.get("CITADEL_USER")
+        if name:
+            return pwd.getpwnam(name)
+        if os.geteuid() != 0:
+            return pwd.getpwuid(os.geteuid())
+    except KeyError:
+        pass
+    return None
+
+
+def _as_user_prefix(acct: pwd.struct_passwd | None) -> str | None:
+    """Command prefix that runs the rest of the line as the desktop user, with the
+    environment `systemctl --user` and ShadowCypher modules need. None = no user."""
+    if acct is None:
+        return None
+    q = shlex.quote
+    uid, gid = acct.pw_uid, acct.pw_gid
+    env = [f"XDG_RUNTIME_DIR=/run/user/{uid}", f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus"]
+    # User-owned code goes on the user's PYTHONPATH only, never on root's
+    shadow_root = os.environ.get("SHADOW_ROOT") or os.path.join(acct.pw_dir, "ShadowCypher")
+    if os.path.isdir(shadow_root):
+        env += [f"PYTHONPATH={q(shadow_root)}", f"SHADOW_ROOT={q(shadow_root)}"]
+    return f"setpriv --reuid={uid} --regid={gid} --init-groups --reset-env env {' '.join(env)}"
 
 
 def build_apply_script(
@@ -539,13 +582,12 @@ def build_apply_script(
     """
     q = shlex.quote
     lines = ["#!/bin/bash", _SCRIPT_PRELUDE]
+    # Host processes belong to the desktop user: root only finds and signals them
+    as_user = _as_user_prefix(desktop_account())
+    no_user = "no desktop user to run as (set CITADEL_USER)"
 
-    # ── Environment Ingress ──
-    shadow_root = os.environ.get("SHADOW_ROOT", os.path.expanduser("~/ShadowCypher"))
-    if os.path.isdir(shadow_root):
-        lines.append(f"export PYTHONPATH=$PYTHONPATH:{q(shadow_root)}")
-        lines.append(f"export SHADOW_ROOT={q(shadow_root)}")
-        lines.append("")
+    def user_cmd(cmd: str) -> str:
+        return f"{as_user} bash -c {q(cmd)}"
 
     if run_plugins:
         # Wrap arguments into a config object for the plugins
@@ -592,18 +634,22 @@ def build_apply_script(
             units = " ".join(q(u) for u in services_to_unmask)
             lines.append(f"systemctl unmask --runtime {units} >/dev/null 2>&1 || true")
 
+        lines.append(set_gpu_power_limit(gpu_power_limit))
+
     # ── Process/Service Orchestration ──
     # Processes go first so compose stacks are stopped while Docker is still up.
     for proc in processes_to_kill:
         cryo = _cryo_cgroup(proc.id)
-        lines.append(f"echo 0 > {cryo}/cgroup.freeze 2>/dev/null || true")
-        if proc.stop_cmd:
-            lines.append(f"{{ {proc.stop_cmd}; }} || citadel_fail {q('stop ' + proc.id)}")
-        elif proc.kind == "compose":
-            lines.append(
-                f"docker ps --format '{{{{.Names}}}}' 2>/dev/null | grep -E {q(proc.grep)} "
-                f"| xargs -r docker stop >/dev/null || citadel_fail {q('stop ' + proc.id)}"
-            )
+        lines.append(f"citadel_write 0 {cryo}/cgroup.freeze || true")
+        if proc.kind == "compose":
+            # By container name if the compose file is gone or its stop fails
+            by_name = (f"docker ps --format '{{{{.Names}}}}' 2>/dev/null | grep -E {q(proc.grep)} "
+                       f"| xargs -r docker stop >/dev/null")
+            stop = f"{{ {proc.stop_cmd}; }} || {by_name}" if proc.stop_cmd else by_name
+            lines.append(f"{stop} || citadel_fail {q('stop ' + proc.id)}")
+        elif proc.stop_cmd:
+            lines.append(f"{user_cmd(proc.stop_cmd)} || citadel_fail {q('stop ' + proc.id)}" if as_user
+                         else f"citadel_fail {q(f'stop {proc.id}: {no_user}')}")
         else:
             lines.append(f"citadel_pids {q(proc.grep)} | xargs -r kill 2>/dev/null || true")
         lines.append(f"rmdir {cryo} 2>/dev/null || true")
@@ -612,7 +658,7 @@ def build_apply_script(
         cryo = _cryo_cgroup(proc.id)
         lines.append(f"mkdir -p {cryo} || citadel_fail {q('freeze ' + proc.id)}")
         lines.append(f"for pid in $(citadel_pids {q(proc.grep)}); do")
-        lines.append(f"    echo $pid > {cryo}/cgroup.procs 2>/dev/null || true")
+        lines.append(f"    citadel_write $pid {cryo}/cgroup.procs || true")
         lines.append("done")
         lines.append(f"echo 1 > {cryo}/cgroup.freeze || citadel_fail {q('freeze ' + proc.id)}")
 
@@ -624,14 +670,16 @@ def build_apply_script(
         lines.append(f"citadel_start_unit {q(svc)}")
 
     for proc in processes_to_start:
-        lines.append(f"echo 0 > {_cryo_cgroup(proc.id)}/cgroup.freeze 2>/dev/null || true")
+        lines.append(f"citadel_write 0 {_cryo_cgroup(proc.id)}/cgroup.freeze || true")
         if not proc.start_cmd:
             continue
         if proc.kind == "compose":
             lines.append(f"{{ {proc.start_cmd}; }} || citadel_fail {q('start ' + proc.id)}")
         else:
+            start = (f"setsid {user_cmd(proc.start_cmd)} >/dev/null 2>&1 </dev/null &" if as_user
+                     else f"citadel_fail {q(f'start {proc.id}: {no_user}')}")
             lines.append(f"if [ -z \"$(citadel_pids {q(proc.grep)})\" ]; then")
-            lines.append(f"    setsid bash -c {q(proc.start_cmd)} >/dev/null 2>&1 </dev/null &")
+            lines.append(f"    {start}")
             lines.append("fi")
 
     lines.append('if [ "$CITADEL_FAILURES" -gt 0 ]; then')

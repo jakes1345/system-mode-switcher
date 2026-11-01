@@ -27,7 +27,7 @@ class Phase6HyperOrchestration:
         if getattr(self.config, 'gpu_performance', False):
             lines.append('echo "OOM Killer: Protecting Steam/Games..."')
             lines.append('for pid in $(pgrep -f "steam|hl2_linux|csgo|dota2"); do')
-            lines.append('    echo -1000 > /proc/$pid/oom_score_adj 2>/dev/null || true')
+            lines.append('    citadel_write -1000 /proc/$pid/oom_score_adj || true')
             lines.append('done')
 
     def flatpak_orchestrator(self, lines: list):

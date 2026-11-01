@@ -23,13 +23,13 @@ class Phase4WaylandGraphics:
     def gamescope_console(self, lines: list):
         if getattr(self.config, 'gpu_performance', False):
             lines.append('echo "GPU_PERF: Setting AMD power_dpm_force_performance_level=high"')
-            lines.append('for f in /sys/class/drm/card*/device/power_dpm_force_performance_level; do echo high > "$f" 2>/dev/null || true; done')
+            lines.append('for f in /sys/class/drm/card*/device/power_dpm_force_performance_level; do citadel_write high "$f" || true; done')
             lines.append('echo "Gamescope: Elevating priority..."')
             lines.append('for pid in $(pgrep gamescope); do')
             lines.append('    renice -n -10 -p $pid 2>/dev/null || true')
             lines.append('done')
         else:
-            lines.append('for f in /sys/class/drm/card*/device/power_dpm_force_performance_level; do echo auto > "$f" 2>/dev/null || true; done')
+            lines.append('for f in /sys/class/drm/card*/device/power_dpm_force_performance_level; do citadel_write auto "$f" || true; done')
 
     def edid_spoofing(self, lines: list):
         # Applied edid_spoofing
