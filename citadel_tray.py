@@ -24,7 +24,7 @@ class CitadelTrayApp:
         self.active_profile = ""
         
         # Connect to gRPC Daemon
-        channel = grpc.insecure_channel('localhost:50051')
+        channel = grpc.insecure_channel('127.0.0.1:50051')
         self.stub = citadel_pb2_grpc.CitadelServiceStub(channel)
 
         # Use absolute path directly — bypasses AppIndicator's theme-name cache

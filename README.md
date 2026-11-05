@@ -101,8 +101,8 @@ python3 citadel_cli.py monitor        # live telemetry
 
 ## Security
 
-- **The hub runs as root and listens on port 50051 on all interfaces, with no authentication.** Any machine that can reach that port can switch your profile. Block the port in your firewall, or change `add_insecure_port('[::]:50051')` in [`services/hub/main.py`](services/hub/main.py) to `127.0.0.1:50051`.
-- **The PolicyKit policy lets any user in the active session run `/usr/local/bin/citadel-apply` as root without a password**, and `citadel-apply` runs whatever script it is given. Only install it on a machine where you are the only user. For a shared machine, change `allow_active` in [`com.obsidian.citadel.policy`](internal/security/com.obsidian.citadel.policy) to `auth_admin_keep`.
+- **The hub listens on `127.0.0.1:50051` only**, so other machines can't reach it. The API has no authentication of its own, so any local user can switch profiles. Install it on a machine whose local users you trust.
+- **Applying changes as root outside the hub needs your password.** When the dashboard isn't running as root, it applies changes through `pkexec /usr/local/bin/citadel-apply`. The PolicyKit policy ([`com.obsidian.citadel.policy`](internal/security/com.obsidian.citadel.policy)) requires an administrator password for that, cached for a few minutes (`auth_admin_keep`).
 
 ## Tests
 
