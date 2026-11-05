@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-
-import tomllib
 
 
 @dataclass
@@ -429,7 +428,8 @@ def save_config(config: Config) -> None:
         lines.append(f'icon = "{prof.icon}"')
         if prof.activation_message:
             # Escape newlines for TOML single-line string
-            lines.append(f'activation_message = "{prof.activation_message.replace(chr(10), "\\n")}"')
+            escaped = prof.activation_message.replace("\n", "\\n")
+            lines.append(f'activation_message = "{escaped}"')
         if prof.builtin:
             lines.append("builtin = true")
         lines.append("")

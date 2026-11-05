@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -55,7 +55,7 @@ class CitadelLogger:
     def log(self, level: str, module: str, message: str, **extra):
         """Write a structured event to log and telemetry stream."""
         entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "level": level.upper(),
             "module": module,
             "message": message,
