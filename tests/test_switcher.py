@@ -371,7 +371,11 @@ class TestProcessDetection(unittest.TestCase):
             time.sleep(0.2)
             r = subprocess.run(["bash", "-c", f"{_SCRIPT_PRELUDE}\ncitadel_pids {shlex.quote(pattern)}"],
                                capture_output=True, text=True, timeout=10, check=False)
-            self.assertEqual(r.stdout.split(), [str(target.pid)])
+            # A real friday-hands may be running on a dev machine and rightly match too,
+            # so check our two processes rather than the exact list.
+            pids = r.stdout.split()
+            self.assertIn(str(target.pid), pids)
+            self.assertNotIn(str(bystander.pid), pids)
         finally:
             for proc in (target, bystander):
                 proc.kill()
