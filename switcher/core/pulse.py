@@ -3,13 +3,15 @@ Citadel Pulse Core — High-Performance Background Telemetry Engine.
 Runs telemetry collection as a background 'pulse' to ensure zero lag in the UI.
 """
 
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
 
 import psutil
 
-from switcher.core.logger import logger
+logger = logging.getLogger(__name__)
+
 
 
 @dataclass
@@ -55,12 +57,18 @@ class PulseEngine:
         except OSError:
             pass
 
+        failing = False
         while self._running:
             start_loop = time.time()
             try:
                 self._collect()
-            except Exception as e:  # noqa: BLE001 — a failed sample must not kill the telemetry thread
-                logger.error("Pulse", f"Telemetry collection failed: {e}")
+                failing = False
+            except Exception:
+                # The sampling thread must survive a bad sample. Log the first
+                # failure of a run of failures rather than one per interval.
+                if not failing:
+                    logger.exception("Telemetry sample failed")
+                failing = True
             
             elapsed = time.time() - start_loop
             sleep_time = max(0, self.interval - elapsed)

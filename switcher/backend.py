@@ -49,7 +49,7 @@ def get_primary_interface() -> str:
     """Detect the most likely active physical interface."""
     for root, dirs, _ in os.walk("/sys/class/net"):
         for d in dirs:
-            # Filter out virtual/loopback
+            # Physical interfaces only: virtual and loopback ones have no device link
             if d.startswith(("wl", "en", "eth", "wlan")) and Path(f"/sys/class/net/{d}/device").exists():
                 return d
     return "wlan0"

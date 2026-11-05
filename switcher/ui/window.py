@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import os
 import threading
 import time
@@ -23,6 +25,8 @@ from switcher.ui.dialogs import (
 )
 from switcher.ui.profile_sidebar import ProfileSidebar
 from switcher.ui.service_panel import ServicePanel
+
+logger = logging.getLogger(__name__)
 
 Notify.init("Obsidian Citadel")
 
@@ -498,13 +502,12 @@ class SwitcherWindow(Gtk.ApplicationWindow):
 
         self._log(log_msg)
 
-        try:
+        # The result is already in the log panel; a missing notification daemon is not an error
+        with contextlib.suppress(GLib.Error):
             n = Notify.Notification.new(notif_title, notif_body, "preferences-system")
             n.set_urgency(1)  # NORMAL urgency
             n.set_timeout(5000)
             n.show()
-        except GLib.Error as e:
-            self._log(f"Notification not shown: {e.message}")
 
     def _delayed_status_refresh(self) -> bool:
         """Called shortly after apply to update status dots once slow units have started."""
@@ -592,6 +595,12 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             self.disk_bar.set_value(vitals['disk_pressure'])
             return False
 
+        def _set_offline():
+            if getattr(self, "_hub_connected", True):
+                self._hub_connected = False
+                self.hub_status_label.set_text("🔴 HUB OFFLINE")
+            return False
+
         def telemetry_worker():
             """Hardware sampling engine via gRPC stream."""
             import os
@@ -631,11 +640,11 @@ class SwitcherWindow(Gtk.ApplicationWindow):
                         }
                         GLib.idle_add(_apply_vitals_to_ui, data)
                 except grpc.RpcError:
-                    def _set_offline():
-                        if getattr(self, "_hub_connected", True):
-                            self._hub_connected = False
-                            self.hub_status_label.set_text("🔴 HUB OFFLINE")
-                        return False
+                    # Hub not running or the stream dropped: expected, retried below
+                    GLib.idle_add(_set_offline)
+                except Exception:
+                    # A malformed pulse must not kill the telemetry thread
+                    logger.exception("Telemetry stream failed")
                     GLib.idle_add(_set_offline)
                 finally:
                     if channel:
@@ -647,7 +656,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
     # ── Logging ───────────────────────────────────────────────────────────
 
     def _log(self, msg: str) -> None:
-        ts = datetime.now().strftime("%H:%M:%S")
+        ts = datetime.now().astimezone().strftime("%H:%M:%S")
         end = self._log_buffer.get_end_iter()
         self._log_buffer.insert(end, f"[{ts}] {msg}\n")
         mark = self._log_buffer.create_mark(None, self._log_buffer.get_end_iter(), False)
