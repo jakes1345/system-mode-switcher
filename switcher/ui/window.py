@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import os
 import threading
 import time
@@ -14,7 +16,6 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Notify", "0.7")
 from gi.repository import Gdk, GLib, Gtk, Notify
 
-from switcher import backend
 from switcher.config import Config, ProfileConfig, TweakConfig, save_config
 from switcher.ui.dialogs import (
     confirm_apply_dialog,
@@ -23,6 +24,8 @@ from switcher.ui.dialogs import (
 )
 from switcher.ui.profile_sidebar import ProfileSidebar
 from switcher.ui.service_panel import ServicePanel
+
+logger = logging.getLogger(__name__)
 
 Notify.init("Obsidian Citadel")
 
@@ -410,21 +413,23 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         thread.start()
 
     def _apply_grpc_worker(self, profile_name: str) -> None:
+        import os
+        import sys
+
         import grpc
-        import os, sys
         hub_path = os.path.join(os.path.dirname(__file__), '../../services/hub')
         if hub_path not in sys.path: sys.path.insert(0, hub_path)
         import citadel_pb2
         import citadel_pb2_grpc
         
         try:
-            channel = grpc.insecure_channel('localhost:50051')
+            channel = grpc.insecure_channel('127.0.0.1:50051')
             stub = citadel_pb2_grpc.CitadelServiceStub(channel)
             req = citadel_pb2.SetProfileRequest(profile_name=profile_name)
             resp = stub.SetProfile(req)
             GLib.idle_add(self._log, f"Hub Response: {resp.message}")
             ok = resp.success
-        except Exception as e:
+        except grpc.RpcError as e:
             GLib.idle_add(self._log, f"Hub Error: {e}")
             ok = False
 
@@ -478,13 +483,12 @@ class SwitcherWindow(Gtk.ApplicationWindow):
 
         self._log(log_msg)
 
-        try:
+        # The result is already in the log panel; a missing notification daemon is not an error
+        with contextlib.suppress(GLib.Error):
             n = Notify.Notification.new(notif_title, notif_body, "preferences-system")
             n.set_urgency(1)  # NORMAL urgency
             n.set_timeout(5000)
             n.show()
-        except Exception:
-            pass
 
     def _delayed_status_refresh(self) -> bool:
         """Called ~5s after apply to update status dots once reconciler has had time to act."""
@@ -572,10 +576,18 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             self.disk_bar.set_value(vitals['disk_pressure'])
             return False
 
+        def _set_offline():
+            if getattr(self, "_hub_connected", True):
+                self._hub_connected = False
+                self.hub_status_label.set_text("🔴 HUB OFFLINE")
+            return False
+
         def telemetry_worker():
             """Hardware sampling engine via gRPC stream."""
+            import os
+            import sys
+
             import grpc
-            import os, sys
             hub_path = os.path.join(os.path.dirname(__file__), '../../services/hub')
             if hub_path not in sys.path: sys.path.insert(0, hub_path)
             import citadel_pb2
@@ -584,7 +596,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             while True:
                 channel = None
                 try:
-                    channel = grpc.insecure_channel('localhost:50051')
+                    channel = grpc.insecure_channel('127.0.0.1:50051')
                     stub = citadel_pb2_grpc.CitadelServiceStub(channel)
                     req = citadel_pb2.TelemetryRequest(interval_ms=1000)
                     for pulse in stub.StreamTelemetry(req):
@@ -608,19 +620,16 @@ class SwitcherWindow(Gtk.ApplicationWindow):
                             "top_process": pulse.top_process
                         }
                         GLib.idle_add(_apply_vitals_to_ui, data)
+                except grpc.RpcError:
+                    # Hub not running or the stream dropped: expected, retried below
+                    GLib.idle_add(_set_offline)
                 except Exception:
-                    def _set_offline():
-                        if getattr(self, "_hub_connected", True):
-                            self._hub_connected = False
-                            self.hub_status_label.set_text("🔴 HUB OFFLINE")
-                        return False
+                    # A malformed pulse must not kill the telemetry thread
+                    logger.exception("Telemetry stream failed")
                     GLib.idle_add(_set_offline)
                 finally:
                     if channel:
-                        try:
-                            channel.close()
-                        except Exception:
-                            pass
+                        channel.close()
                 time.sleep(2)
 
         threading.Thread(target=telemetry_worker, daemon=True, name="CitadelVitals").start()
@@ -628,7 +637,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
     # ── Logging ───────────────────────────────────────────────────────────
 
     def _log(self, msg: str) -> None:
-        ts = datetime.now().strftime("%H:%M:%S")
+        ts = datetime.now().astimezone().strftime("%H:%M:%S")
         end = self._log_buffer.get_end_iter()
         self._log_buffer.insert(end, f"[{ts}] {msg}\n")
         mark = self._log_buffer.create_mark(None, self._log_buffer.get_end_iter(), False)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import gi
 
@@ -143,7 +143,7 @@ class ProfileSidebar(Gtk.Box):
         self.pack_start(scroll, True, True, 0)
 
         # Add profile cards
-        for name, profile in profiles.items():
+        for profile in profiles.values():
             self.add_profile_card(profile)
 
         # Save button at bottom

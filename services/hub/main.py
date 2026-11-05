@@ -135,11 +135,13 @@ async def serve():
     controller = CitadelController()
     
     citadel_pb2_grpc.add_CitadelServiceServicer_to_server(CitadelHubService(controller), server)
-    server.add_insecure_port('[::]:50051')
+    # Loopback only: the hub runs as root and the API has no authentication,
+    # so it must never be reachable from another machine.
+    server.add_insecure_port('127.0.0.1:50051')
     
     recon_task = asyncio.create_task(controller.reconciler.start())
     
-    print("[CITADEL_HUB] APEX_CONTROL_PLANE listening on port 50051")
+    print("[CITADEL_HUB] APEX_CONTROL_PLANE listening on 127.0.0.1:50051")
     await server.start()
     await server.wait_for_termination()
 

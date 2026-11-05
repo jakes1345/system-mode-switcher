@@ -10,7 +10,7 @@ import citadel_pb2
 import citadel_pb2_grpc
 
 def status():
-    channel = grpc.insecure_channel('localhost:50051')
+    channel = grpc.insecure_channel('127.0.0.1:50051')
     stub = citadel_pb2_grpc.CitadelServiceStub(channel)
     try:
         response = stub.GetCurrentState(citadel_pb2.StateRequest())
@@ -23,7 +23,7 @@ def status():
         print(f"Error connecting to Hub: {e.details()}")
 
 def set_profile(name):
-    channel = grpc.insecure_channel('localhost:50051')
+    channel = grpc.insecure_channel('127.0.0.1:50051')
     stub = citadel_pb2_grpc.CitadelServiceStub(channel)
     try:
         req = citadel_pb2.SetProfileRequest(profile_name=name)
@@ -33,7 +33,7 @@ def set_profile(name):
         print(f"Error connecting to Hub: {e.details()}")
 
 def monitor():
-    channel = grpc.insecure_channel('localhost:50051')
+    channel = grpc.insecure_channel('127.0.0.1:50051')
     stub = citadel_pb2_grpc.CitadelServiceStub(channel)
     try:
         print("Monitoring Telemetry Stream (Press Ctrl+C to stop)...")

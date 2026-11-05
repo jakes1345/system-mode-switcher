@@ -142,7 +142,10 @@ class TestApplyScriptGeneration(unittest.TestCase):
         )
         self.assertIn("vm.swappiness=10", script)
         self.assertIn("transparent_hugepage", script)
-        self.assertIn("nohup python3 test.py", script)
+        # Started in the background with output discarded, and only when not already running.
+        # (No nohup: start commands can be compound, e.g. "systemctl start x || true".)
+        self.assertIn("if ! pgrep -f 'test_proc' >/dev/null 2>&1; then", script)
+        self.assertIn("    python3 test.py >/dev/null 2>&1 &", script)
 
 
 class TestVectorTelemetry(unittest.TestCase):
