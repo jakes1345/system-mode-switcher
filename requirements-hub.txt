@@ -1,0 +1,6 @@
+# Runtime dependencies for the hub/dashboard, installed into the root-owned venv
+# at /opt/obsidian-citadel/venv by install.sh. Floors match the generated
+# services/hub/citadel_pb2*.py (GRPC_GENERATED_VERSION / protobuf gencode).
+grpcio>=1.80.0
+protobuf>=6.31.1,<7
+psutil>=5.9.0

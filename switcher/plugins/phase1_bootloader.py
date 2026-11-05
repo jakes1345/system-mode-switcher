@@ -27,8 +27,7 @@ class Phase1Bootloader:
         pass  # boot-time op — not appropriate on every mode switch
 
     def early_boot_splash(self, lines: list):
-        # Applied early_boot_splash
-        lines.append('plymouth change-mode --boot-up 2>/dev/null || true')
+        pass  # plymouth on a running desktop does nothing useful
 
     def sysinit_target(self, lines: list):
         # Applied sysinit_target
@@ -43,8 +42,7 @@ class Phase1Bootloader:
         lines.append('echo "Citadel: Activating Citadel Target..."')
 
     def sysrq_interception(self, lines: list):
-        # Applied sysrq_interception
-        lines.append('echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true')
+        pass  # don't silently change the distro's SysRq security setting
 
     def luks_yubikey(self, lines: list):
         # Applied luks_yubikey
@@ -55,6 +53,5 @@ class Phase1Bootloader:
         lines.append('echo "Citadel: Activating Kernel Cmdline Parser..."')
 
     def systemd_parallelization(self, lines: list):
-        # Applied systemd_parallelization
-        lines.append('systemctl daemon-reload 2>/dev/null || true')
+        pass  # a daemon-reload per mode switch is pure overhead
 

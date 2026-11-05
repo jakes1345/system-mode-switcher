@@ -16,7 +16,8 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Notify", "0.7")
 from gi.repository import Gdk, GLib, Gtk, Notify
 
-from switcher.config import Config, ProfileConfig, TweakConfig, save_config
+from switcher import backend
+from switcher.config import Config, ProfileConfig, TweakConfig, hub_target, save_config
 from switcher.ui.dialogs import (
     confirm_apply_dialog,
     confirm_delete_dialog,
@@ -70,7 +71,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
 
         # How long (in seconds) to wait after apply before allowing
         # refresh_switches to probe live state again.
-        self._APPLY_CONVERGENCE_SECS = 15
+        self._APPLY_CONVERGENCE_SECS = 10
 
         GLib.timeout_add_seconds(30, self._auto_refresh)
 
@@ -409,10 +410,12 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         self._progress.set_fraction(0.5)
         self._progress.show()
 
-        thread = threading.Thread(target=self._apply_grpc_worker, args=(self._active_profile,), daemon=True)
+        # Snapshot the switches on the main thread — that is what gets applied
+        desired = self.panel.collect_desired_state()
+        thread = threading.Thread(target=self._apply_grpc_worker, args=(self._active_profile, desired), daemon=True)
         thread.start()
 
-    def _apply_grpc_worker(self, profile_name: str) -> None:
+    def _apply_grpc_worker(self, profile_name: str, desired: dict) -> None:
         import os
         import sys
 
@@ -421,17 +424,42 @@ class SwitcherWindow(Gtk.ApplicationWindow):
         if hub_path not in sys.path: sys.path.insert(0, hub_path)
         import citadel_pb2
         import citadel_pb2_grpc
-        
+
+        overrides = citadel_pb2.DesiredState(
+            services=desired["services"],
+            processes=desired["processes"],
+            swappiness=desired["swappiness"],
+            compositor_unredirect=desired["unredirect"],
+            gpu_performance=desired["gpu_perf"],
+        )
+        if desired.get("cpu_gov"):
+            overrides.cpu_governor = desired["cpu_gov"]
+        if desired.get("thp"):
+            overrides.thp_mode = desired["thp"]
+        if desired.get("gpu_pl"):
+            overrides.gpu_power_limit = desired["gpu_pl"]
+
         try:
-            channel = grpc.insecure_channel('127.0.0.1:50051')
+            channel = grpc.insecure_channel(hub_target())
             stub = citadel_pb2_grpc.CitadelServiceStub(channel)
-            req = citadel_pb2.SetProfileRequest(profile_name=profile_name)
-            resp = stub.SetProfile(req)
+            req = citadel_pb2.SetProfileRequest(profile_name=profile_name, overrides=overrides)
+            # The hub returns only after the apply script has finished
+            resp = stub.SetProfile(req, timeout=180)
             GLib.idle_add(self._log, f"Hub Response: {resp.message}")
+            if not resp.success and resp.output:
+                GLib.idle_add(self._log, resp.output)
             ok = resp.success
-        except grpc.RpcError as e:
+        except (grpc.RpcError, ValueError, TypeError) as e:
             GLib.idle_add(self._log, f"Hub Error: {e}")
             ok = False
+
+        if ok:
+            # Session-level settings the root hub can't reach (user's gsettings/X display)
+            okc, err = backend.set_compositor_unredirect(desired["unredirect"])
+            if not okc and err:
+                GLib.idle_add(self._log, f"Compositor unredirect not set: {err}")
+            if backend.GPU_VENDOR == "nvidia":
+                backend.set_nvidia_gpu_mode(desired["gpu_perf"])
 
         GLib.idle_add(self._finish_apply, ok)
 
@@ -447,19 +475,10 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             GLib.timeout_add(1500, lambda: (self._apply_btn.get_style_context().remove_class("apply-flash"), False)[-1])
 
         if ok:
-            # ── KEY FIX: Do NOT call refresh_switches here. ──
-            # The reconciler hasn't had time to actually start/stop services yet
-            # (it runs on a 10s loop). If we probe live state now, we'd read the
-            # OLD state and clobber the switches back to pre-apply values.
-            #
-            # Instead:
-            # 1. Keep the apply guard active so switches stay at desired state
-            # 2. Schedule a delayed status-dot-only refresh (5s) to let reconciler
-            #    converge, then update dots to show actual convergence
-            # 3. Lift the guard after convergence time so normal auto-refresh
-            #    can eventually sync everything
+            # The hub has finished applying; give slow units a moment, then show
+            # status dots for the real state while keeping the switches as set.
             self.panel._apply_guard_active = True
-            GLib.timeout_add_seconds(5, self._delayed_status_refresh)
+            GLib.timeout_add_seconds(3, self._delayed_status_refresh)
             GLib.timeout_add_seconds(self._APPLY_CONVERGENCE_SECS, self._lift_apply_guard)
         else:
             # On failure, DO refresh to show actual state
@@ -491,7 +510,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             n.show()
 
     def _delayed_status_refresh(self) -> bool:
-        """Called ~5s after apply to update status dots once reconciler has had time to act."""
+        """Called shortly after apply to update status dots once slow units have started."""
         self.panel.refresh_status()
         return False  # one-shot timer
 
@@ -596,7 +615,7 @@ class SwitcherWindow(Gtk.ApplicationWindow):
             while True:
                 channel = None
                 try:
-                    channel = grpc.insecure_channel('127.0.0.1:50051')
+                    channel = grpc.insecure_channel(hub_target())
                     stub = citadel_pb2_grpc.CitadelServiceStub(channel)
                     req = citadel_pb2.TelemetryRequest(interval_ms=1000)
                     for pulse in stub.StreamTelemetry(req):

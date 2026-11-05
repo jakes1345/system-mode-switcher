@@ -1,6 +1,6 @@
 #!/bin/bash
 # 🛡️ OBSIDIAN CITADEL — FIX DEPLOY SCRIPT
-# Run this with: sudo bash /home/jack/system-mode-switcher/fix_deploy.sh
+# Run this with: sudo bash ./fix_deploy.sh
 set -e
 
 echo "═══════════════════════════════════════════════════════════════"
@@ -16,10 +16,10 @@ rm -f /etc/systemd/system/obsidian-citadel.service
 echo "  ✅ Duplicate service removed."
 echo ""
 
-# ── Step 2: Deploy the fixed citadel-hub.service ──
-echo "[2/5] Installing fixed 'citadel-hub.service'..."
-cp /home/jack/system-mode-switcher/internal/systemd/citadel-hub.service /etc/systemd/system/citadel-hub.service
-echo "  ✅ Service file updated."
+# ── Step 2: Deploy the hub (root-owned copy in /opt + unit) ──
+echo "[2/5] Installing hub to /opt/obsidian-citadel via install.sh..."
+bash "$(cd "$(dirname "$0")" && pwd)/install.sh"
+echo "  ✅ Hub and service file updated."
 echo ""
 
 # ── Step 3: Reload systemd and restart ──
@@ -30,17 +30,16 @@ sleep 2
 echo "  ✅ Hub restarted."
 echo ""
 
-# ── Step 4: Verify single port listener ──
-echo "[4/5] Verifying port 50051..."
-LISTENERS=$(ss -tlnp 'sport = :50051' | grep -c LISTEN)
-if [ "$LISTENERS" -eq 1 ]; then
-    echo "  ✅ Exactly 1 listener on port 50051 — CORRECT"
-elif [ "$LISTENERS" -gt 1 ]; then
-    echo "  ❌ WARNING: $LISTENERS listeners detected — there may be a stale process"
-    echo "     Run: ss -tlnp | grep 50051"
+# ── Step 4: Verify the hub socket ──
+echo "[4/5] Verifying /run/citadel/hub.sock..."
+if [ -S /run/citadel/hub.sock ]; then
+    echo "  ✅ Hub socket present: $(stat -c '%U %a' /run/citadel/hub.sock)"
 else
-    echo "  ❌ WARNING: No listener on port 50051 — hub may have failed to start"
+    echo "  ❌ WARNING: No hub socket — hub may have failed to start"
     echo "     Run: systemctl status citadel-hub.service"
+fi
+if ss -tln 'sport = :50051' | grep -q LISTEN; then
+    echo "  ❌ WARNING: something still listens on TCP 50051 (old hub?)"
 fi
 echo ""
 

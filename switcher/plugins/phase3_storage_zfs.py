@@ -26,7 +26,7 @@ class Phase3StorageZfs:
 
     def zfs_snapshots(self, lines: list):
         # Applied zfs_snapshots
-        lines.append('zfs snapshot -r rpool@citadel_$(date +%s) 2>/dev/null || true')
+        pass  # a snapshot per mode switch piles up forever; belongs in a package hook
 
     def kamikaze_mode(self, lines: list):
         # Applied kamikaze_mode
@@ -36,29 +36,25 @@ class Phase3StorageZfs:
         if getattr(self.config, 'stealth_mode', False):
             lines.append('echo "Storage: Ephemeral mode (Browser Cache in tmpfs)..."')
             lines.append('mkdir -p /tmp/ephemeral_browsing')
-            lines.append('mount -t tmpfs -o size=2G tmpfs /tmp/ephemeral_browsing 2>/dev/null || true')
+            lines.append('mountpoint -q /tmp/ephemeral_browsing || mount -t tmpfs -o size=2G tmpfs /tmp/ephemeral_browsing 2>/dev/null || true')
 
     def zfs_scrub_daemon(self, lines: list):
-        # Applied zfs_scrub_daemon
-        lines.append('zpool scrub rpool 2>/dev/null || true')
+        pass  # scrubs are scheduled maintenance, not a mode-switch action
 
     def bcache_lvm_tiering(self, lines: list):
         # Applied bcache_lvm_tiering
         lines.append('echo "Citadel: Activating Bcache Lvm Tiering..."')
 
     def docker_deduplication(self, lines: list):
-        # Applied docker_deduplication
-        lines.append('docker image prune -f 2>/dev/null || true')
+        pass  # deleting images on a mode switch is data loss nobody asked for
 
     def fim_inotify(self, lines: list):
         # Applied fim_inotify
         lines.append('sysctl -w fs.inotify.max_user_watches=1048576 2>/dev/null || true')
 
     def dev_shm_resizing(self, lines: list):
-        # Applied dev_shm_resizing
-        lines.append('mount -o remount,size=4G /dev/shm 2>/dev/null || true')
+        pass  # remounting /dev/shm to 4G can shrink it under running apps
 
     def nvme_trim_discard(self, lines: list):
-        # Applied nvme_trim_discard
-        lines.append('fstrim -av 2>/dev/null || true')
+        pass  # fstrim.timer already does this; running it per switch stalls I/O
 

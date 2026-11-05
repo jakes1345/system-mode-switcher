@@ -27,15 +27,14 @@ class Phase6HyperOrchestration:
         if getattr(self.config, 'gpu_performance', False):
             lines.append('echo "OOM Killer: Protecting Steam/Games..."')
             lines.append('for pid in $(pgrep -f "steam|hl2_linux|csgo|dota2"); do')
-            lines.append('    echo -1000 > /proc/$pid/oom_score_adj 2>/dev/null || true')
+            lines.append('    citadel_write -1000 /proc/$pid/oom_score_adj || true')
             lines.append('done')
 
     def flatpak_orchestrator(self, lines: list):
         pass  # flatpak updates are slow — not appropriate on every mode switch
 
     def apparmor_generator(self, lines: list):
-        # Applied apparmor_generator
-        lines.append('aa-enforce /etc/apparmor.d/* 2>/dev/null || true')
+        pass  # forcing every AppArmor profile into enforce mode breaks apps
 
     def wine_proton_swapping(self, lines: list):
         # Applied wine_proton_swapping
@@ -46,14 +45,10 @@ class Phase6HyperOrchestration:
         lines.append('echo "Citadel: Activating Preemptive Freezer..."')
 
     def docker_socket_pause(self, lines: list):
-        # Stop docker in modes where it's not needed to free RAM/CPU
-        if not getattr(self.config, 'gpu_performance', False):
-            return
-        lines.append('systemctl stop docker containerd 2>/dev/null || true')
+        pass  # Docker on/off is the profile's service list, not a side effect of GPU mode
 
     def wayland_clipboard_clear(self, lines: list):
-        # Applied wayland_clipboard_clear
-        lines.append('wl-copy -c 2>/dev/null || true')
+        pass  # root has no Wayland session; this never touched the user's clipboard
 
     def evdev_input_interceptor(self, lines: list):
         # Applied evdev_input_interceptor

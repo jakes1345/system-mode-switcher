@@ -4,6 +4,12 @@ Generates execution scripts for this phase.
 """
 
 class Phase5RedteamNetwork:
+    TOR_RULES = (
+        '-p tcp --syn -j REDIRECT --to-ports 9040',
+        '-p udp --dport 53 -j REDIRECT --to-ports 5353',
+    )
+    SSH_RULE = '-p tcp --dport 22 -j REJECT --reject-with tcp-reset'
+
     def __init__(self, config):
         self.config = config
 
@@ -39,12 +45,14 @@ class Phase5RedteamNetwork:
     def iptables_tor_routing(self, lines: list):
         if getattr(self.config, 'stealth_mode', False):
             lines.append('echo "Network: Transparent Tor Routing Active..."')
-            lines.append('iptables -t nat -A OUTPUT -p tcp --syn -j REDIRECT --to-ports 9040 2>/dev/null || true')
-            lines.append('iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 5353 2>/dev/null || true')
+            # -C first so re-applying never stacks duplicate rules
+            for rule in self.TOR_RULES:
+                lines.append(f'iptables -t nat -C OUTPUT {rule} 2>/dev/null || iptables -t nat -A OUTPUT {rule} 2>/dev/null || true')
         else:
             lines.append('echo "Network: Normal routing (No Tor)..."')
-            lines.append('iptables -t nat -D OUTPUT -p tcp --syn -j REDIRECT --to-ports 9040 2>/dev/null || true')
-            lines.append('iptables -t nat -D OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 5353 2>/dev/null || true')
+            # Loop: older versions appended a duplicate on every pass
+            for rule in self.TOR_RULES:
+                lines.append(f'while iptables -t nat -D OUTPUT {rule} 2>/dev/null; do :; done')
 
     def ebpf_packet_sniffer(self, lines: list):
         # Applied ebpf_packet_sniffer
@@ -52,10 +60,10 @@ class Phase5RedteamNetwork:
 
     def ssh_tarpit(self, lines: list):
         if getattr(self.config, 'stealth_mode', False):
-            lines.append('iptables -A INPUT -p tcp --dport 22 -j REJECT --reject-with tcp-reset 2>/dev/null || true')
+            lines.append(f'iptables -C INPUT {self.SSH_RULE} 2>/dev/null || iptables -A INPUT {self.SSH_RULE} 2>/dev/null || true')
         else:
-            # Remove the rule when leaving stealth mode
-            lines.append('iptables -D INPUT -p tcp --dport 22 -j REJECT --reject-with tcp-reset 2>/dev/null || true')
+            # Remove every copy when leaving stealth mode
+            lines.append(f'while iptables -D INPUT {self.SSH_RULE} 2>/dev/null; do :; done')
 
     def fail2ban_telemetry(self, lines: list):
         # Applied fail2ban_telemetry

@@ -33,7 +33,7 @@ class Phase10EdgeCases:
 
     def pc_speaker_fallback(self, lines: list):
         # Applied pc_speaker_fallback
-        lines.append('modprobe pcspkr 2>/dev/null || true')
+        pass  # loading pcspkr just makes the machine beep
 
     def steam_ramdisk(self, lines: list):
         # Applied steam_ramdisk

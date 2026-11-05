@@ -25,35 +25,45 @@ _sym_db = _symbol_database.Default()
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rcitadel.proto\x12\ncitadel.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"8\n\x11SetProfileRequest\x12\x14\n\x0cprofile_name\x18\x01 \x01(\t\x12\r\n\x05\x66orce\x18\x02 \x01(\x08\"c\n\x0fProfileResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\x12.\n\napplied_at\x18\x03 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"\x0e\n\x0cStateRequest\"\xba\x01\n\x0bSystemState\x12\x16\n\x0e\x61\x63tive_profile\x18\x01 \x01(\t\x12\x44\n\x0f\x61\x63tive_services\x18\x02 \x03(\x0b\x32+.citadel.v1.SystemState.ActiveServicesEntry\x12\x16\n\x0euptime_seconds\x18\x03 \x01(\x02\x1a\x35\n\x13\x41\x63tiveServicesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x08:\x02\x38\x01\"\'\n\x10TelemetryRequest\x12\x13\n\x0binterval_ms\x18\x01 \x01(\x05\"\xf5\x01\n\x0eTelemetryPulse\x12-\n\ttimestamp\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12#\n\x03\x63pu\x18\x02 \x01(\x0b\x32\x16.citadel.v1.CPUHeatmap\x12\"\n\x03gpu\x18\x03 \x01(\x0b\x32\x15.citadel.v1.GPUVitals\x12\"\n\x03ram\x18\x04 \x01(\x0b\x32\x15.citadel.v1.RAMVitals\x12\x15\n\rdisk_pressure\x18\x05 \x01(\x02\x12\x1b\n\x13net_speed_bytes_sec\x18\x06 \x01(\x02\x12\x13\n\x0btop_process\x18\x07 \x01(\t\" \n\nCPUHeatmap\x12\x12\n\ncore_usage\x18\x01 \x03(\x02\"\xa5\x01\n\tGPUVitals\x12\x13\n\x0btemperature\x18\x01 \x01(\x02\x12\x18\n\x10power_draw_watts\x18\x02 \x01(\x02\x12\x17\n\x0fvram_used_bytes\x18\x03 \x01(\x03\x12\x18\n\x10vram_total_bytes\x18\x04 \x01(\x03\x12\x1b\n\x13utilization_percent\x18\x05 \x01(\x02\x12\x19\n\x11\x66\x61n_speed_percent\x18\x06 \x01(\x02\"4\n\tRAMVitals\x12\x12\n\nused_bytes\x18\x01 \x01(\x03\x12\x13\n\x0btotal_bytes\x18\x02 \x01(\x03\x32\xef\x01\n\x0e\x43itadelService\x12H\n\nSetProfile\x12\x1d.citadel.v1.SetProfileRequest\x1a\x1b.citadel.v1.ProfileResponse\x12\x44\n\x0fGetCurrentState\x12\x18.citadel.v1.StateRequest\x1a\x17.citadel.v1.SystemState\x12M\n\x0fStreamTelemetry\x12\x1c.citadel.v1.TelemetryRequest\x1a\x1a.citadel.v1.TelemetryPulse0\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rcitadel.proto\x12\ncitadel.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"e\n\x11SetProfileRequest\x12\x14\n\x0cprofile_name\x18\x01 \x01(\t\x12\r\n\x05\x66orce\x18\x02 \x01(\x08\x12+\n\toverrides\x18\x03 \x01(\x0b\x32\x18.citadel.v1.DesiredState\"\x81\x04\n\x0c\x44\x65siredState\x12\x38\n\x08services\x18\x01 \x03(\x0b\x32&.citadel.v1.DesiredState.ServicesEntry\x12:\n\tprocesses\x18\x02 \x03(\x0b\x32\'.citadel.v1.DesiredState.ProcessesEntry\x12\x17\n\nswappiness\x18\x03 \x01(\x05H\x00\x88\x01\x01\x12\"\n\x15\x63ompositor_unredirect\x18\x04 \x01(\x08H\x01\x88\x01\x01\x12\x1c\n\x0fgpu_performance\x18\x05 \x01(\x08H\x02\x88\x01\x01\x12\x19\n\x0c\x63pu_governor\x18\x06 \x01(\tH\x03\x88\x01\x01\x12\x1c\n\x0fgpu_power_limit\x18\x07 \x01(\x05H\x04\x88\x01\x01\x12\x15\n\x08thp_mode\x18\x08 \x01(\tH\x05\x88\x01\x01\x1a/\n\rServicesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x08:\x02\x38\x01\x1a\x30\n\x0eProcessesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x08:\x02\x38\x01\x42\r\n\x0b_swappinessB\x18\n\x16_compositor_unredirectB\x12\n\x10_gpu_performanceB\x0f\n\r_cpu_governorB\x12\n\x10_gpu_power_limitB\x0b\n\t_thp_mode\"s\n\x0fProfileResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\x12.\n\napplied_at\x18\x03 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x0e\n\x06output\x18\x04 \x01(\t\"\x0e\n\x0cStateRequest\"\xba\x01\n\x0bSystemState\x12\x16\n\x0e\x61\x63tive_profile\x18\x01 \x01(\t\x12\x44\n\x0f\x61\x63tive_services\x18\x02 \x03(\x0b\x32+.citadel.v1.SystemState.ActiveServicesEntry\x12\x16\n\x0euptime_seconds\x18\x03 \x01(\x02\x1a\x35\n\x13\x41\x63tiveServicesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x08:\x02\x38\x01\"\'\n\x10TelemetryRequest\x12\x13\n\x0binterval_ms\x18\x01 \x01(\x05\"\xf5\x01\n\x0eTelemetryPulse\x12-\n\ttimestamp\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12#\n\x03\x63pu\x18\x02 \x01(\x0b\x32\x16.citadel.v1.CPUHeatmap\x12\"\n\x03gpu\x18\x03 \x01(\x0b\x32\x15.citadel.v1.GPUVitals\x12\"\n\x03ram\x18\x04 \x01(\x0b\x32\x15.citadel.v1.RAMVitals\x12\x15\n\rdisk_pressure\x18\x05 \x01(\x02\x12\x1b\n\x13net_speed_bytes_sec\x18\x06 \x01(\x02\x12\x13\n\x0btop_process\x18\x07 \x01(\t\" \n\nCPUHeatmap\x12\x12\n\ncore_usage\x18\x01 \x03(\x02\"\xa5\x01\n\tGPUVitals\x12\x13\n\x0btemperature\x18\x01 \x01(\x02\x12\x18\n\x10power_draw_watts\x18\x02 \x01(\x02\x12\x17\n\x0fvram_used_bytes\x18\x03 \x01(\x03\x12\x18\n\x10vram_total_bytes\x18\x04 \x01(\x03\x12\x1b\n\x13utilization_percent\x18\x05 \x01(\x02\x12\x19\n\x11\x66\x61n_speed_percent\x18\x06 \x01(\x02\"4\n\tRAMVitals\x12\x12\n\nused_bytes\x18\x01 \x01(\x03\x12\x13\n\x0btotal_bytes\x18\x02 \x01(\x03\x32\xef\x01\n\x0e\x43itadelService\x12H\n\nSetProfile\x12\x1d.citadel.v1.SetProfileRequest\x1a\x1b.citadel.v1.ProfileResponse\x12\x44\n\x0fGetCurrentState\x12\x18.citadel.v1.StateRequest\x1a\x17.citadel.v1.SystemState\x12M\n\x0fStreamTelemetry\x12\x1c.citadel.v1.TelemetryRequest\x1a\x1a.citadel.v1.TelemetryPulse0\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'citadel_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
+  _globals['_DESIREDSTATE_SERVICESENTRY']._loaded_options = None
+  _globals['_DESIREDSTATE_SERVICESENTRY']._serialized_options = b'8\001'
+  _globals['_DESIREDSTATE_PROCESSESENTRY']._loaded_options = None
+  _globals['_DESIREDSTATE_PROCESSESENTRY']._serialized_options = b'8\001'
   _globals['_SYSTEMSTATE_ACTIVESERVICESENTRY']._loaded_options = None
   _globals['_SYSTEMSTATE_ACTIVESERVICESENTRY']._serialized_options = b'8\001'
   _globals['_SETPROFILEREQUEST']._serialized_start=62
-  _globals['_SETPROFILEREQUEST']._serialized_end=118
-  _globals['_PROFILERESPONSE']._serialized_start=120
-  _globals['_PROFILERESPONSE']._serialized_end=219
-  _globals['_STATEREQUEST']._serialized_start=221
-  _globals['_STATEREQUEST']._serialized_end=235
-  _globals['_SYSTEMSTATE']._serialized_start=238
-  _globals['_SYSTEMSTATE']._serialized_end=424
-  _globals['_SYSTEMSTATE_ACTIVESERVICESENTRY']._serialized_start=371
-  _globals['_SYSTEMSTATE_ACTIVESERVICESENTRY']._serialized_end=424
-  _globals['_TELEMETRYREQUEST']._serialized_start=426
-  _globals['_TELEMETRYREQUEST']._serialized_end=465
-  _globals['_TELEMETRYPULSE']._serialized_start=468
-  _globals['_TELEMETRYPULSE']._serialized_end=713
-  _globals['_CPUHEATMAP']._serialized_start=715
-  _globals['_CPUHEATMAP']._serialized_end=747
-  _globals['_GPUVITALS']._serialized_start=750
-  _globals['_GPUVITALS']._serialized_end=915
-  _globals['_RAMVITALS']._serialized_start=917
-  _globals['_RAMVITALS']._serialized_end=969
-  _globals['_CITADELSERVICE']._serialized_start=972
-  _globals['_CITADELSERVICE']._serialized_end=1211
+  _globals['_SETPROFILEREQUEST']._serialized_end=163
+  _globals['_DESIREDSTATE']._serialized_start=166
+  _globals['_DESIREDSTATE']._serialized_end=679
+  _globals['_DESIREDSTATE_SERVICESENTRY']._serialized_start=471
+  _globals['_DESIREDSTATE_SERVICESENTRY']._serialized_end=518
+  _globals['_DESIREDSTATE_PROCESSESENTRY']._serialized_start=520
+  _globals['_DESIREDSTATE_PROCESSESENTRY']._serialized_end=568
+  _globals['_PROFILERESPONSE']._serialized_start=681
+  _globals['_PROFILERESPONSE']._serialized_end=796
+  _globals['_STATEREQUEST']._serialized_start=798
+  _globals['_STATEREQUEST']._serialized_end=812
+  _globals['_SYSTEMSTATE']._serialized_start=815
+  _globals['_SYSTEMSTATE']._serialized_end=1001
+  _globals['_SYSTEMSTATE_ACTIVESERVICESENTRY']._serialized_start=948
+  _globals['_SYSTEMSTATE_ACTIVESERVICESENTRY']._serialized_end=1001
+  _globals['_TELEMETRYREQUEST']._serialized_start=1003
+  _globals['_TELEMETRYREQUEST']._serialized_end=1042
+  _globals['_TELEMETRYPULSE']._serialized_start=1045
+  _globals['_TELEMETRYPULSE']._serialized_end=1290
+  _globals['_CPUHEATMAP']._serialized_start=1292
+  _globals['_CPUHEATMAP']._serialized_end=1324
+  _globals['_GPUVITALS']._serialized_start=1327
+  _globals['_GPUVITALS']._serialized_end=1492
+  _globals['_RAMVITALS']._serialized_start=1494
+  _globals['_RAMVITALS']._serialized_end=1546
+  _globals['_CITADELSERVICE']._serialized_start=1549
+  _globals['_CITADELSERVICE']._serialized_end=1788
 # @@protoc_insertion_point(module_scope)

@@ -13,6 +13,7 @@ import psutil
 logger = logging.getLogger(__name__)
 
 
+
 @dataclass
 class TelemetryState:
     """Atomic state of the entire system's vitals."""
