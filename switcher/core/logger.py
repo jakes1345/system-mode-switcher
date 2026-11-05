@@ -7,15 +7,15 @@ import json
 import logging
 import os
 import threading
-from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Dict, Optional
+
 
 class CitadelLogger:
     """Thread-safe enterprise logger with rotation and event stream support."""
 
-    def __init__(self, log_dir: Optional[Path] = None):
+    def __init__(self, log_dir: Path | None = None):
         if log_dir is None:
             # Always log to the project directory for consistency —
             # /var/log/citadel doesn't exist and the root service can't
